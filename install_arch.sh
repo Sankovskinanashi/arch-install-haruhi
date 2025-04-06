@@ -1,11 +1,15 @@
 #!/bin/bash
+# Автоматическая конвертация CRLF в LF в самом скрипте (удаление \r)
+# Если в файле есть символы возврата каретки, они будут удалены.
+sed -i 's/\r$//' "$0"
+
 set -euo pipefail
 
 # ============================================================
 # Arch Linux Automated Installation for Dual-Boot Laptop
 # Hostname: haruhi | User: kyon
-# EFI (1 GB FAT32), root (59 GB ext4)
-# GNOME, NVIDIA (vulkan), Flatpak, yay, multilib, etc.
+# EFI: 1 GB FAT32, ROOT: 59 GB ext4
+# GNOME, NVIDIA (с поддержкой управления яркостью), Flatpak, AUR (yay), multilib и прочее.
 # ============================================================
 
 if [[ $EUID -ne 0 ]]; then
@@ -57,16 +61,18 @@ set -euo pipefail
 echo ""
 echo "=== Конфигурация системы внутри chroot ==="
 
-# --- Системные настройки ---
+# --- Системные настройки и локаль ---
 echo "[*] Настройка временной зоны и аппаратных часов..."
 ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
 hwclock --systohc
 
 echo "[*] Генерация локали..."
-sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
+# Раскомментируем необходимые локали:
 sed -i 's/^#\(ru_RU.UTF-8\)/\1/' /etc/locale.gen
+sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
 locale-gen
-echo "LANG=en_US.UTF-8" > /etc/locale.conf
+# Устанавливаем русский язык:
+echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 echo "KEYMAP=ru" > /etc/vconsole.conf
 
 # --- Настройка hostname и hosts ---
@@ -78,7 +84,7 @@ cat > /etc/hosts << H
 127.0.1.1   haruhi.localdomain haruhi
 H
 
-# --- Настройка root и создание пользователя ---
+# --- Root и создание пользователя ---
 echo "[*] Установка пароля для root..."
 passwd
 echo "[*] Создание пользователя kyon с правами sudo..."
@@ -110,6 +116,9 @@ pacman -S --noconfirm --needed \
   nautilus gparted unzip p7zip rsync \
   bluez bluez-utils blueman
 
+# --- Установка проприетарных драйверов NVIDIA ---
+echo "[*] Проприетарные драйверы NVIDIA установлены через пакеты nvidia и nvidia-utils."
+
 # --- Установка AUR-хелпера (yay) от пользователя kyon ---
 echo "[*] Установка AUR-хелпера yay..."
 runuser -u kyon -- bash -c '
@@ -126,7 +135,20 @@ runuser -u kyon -- yay -S --noconfirm visual-studio-code-bin discord obsidian
 # --- Установка Flatpak-приложений ---
 echo "[*] Установка Flatpak-приложений..."
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install -y flathub org.mozilla.firefox com.obsproject.Studio org.kde.krita
+flatpak install -y flathub \
+  org.mozilla.firefox \
+  org.telegram.desktop \
+  md.obsidian.Obsidian \
+  com.obsproject.Studio \
+  org.kde.krita \
+  org.gnome.Extensions \
+  org.libreoffice.LibreOffice
+
+# --- Настройка управления яркостью NVIDIA --- 
+echo "[*] Настройка параметра ядра для управления яркостью..."
+if grep -q '^GRUB_CMDLINE_LINUX=' /etc/default/grub; then
+  sed -i 's/^GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX=\"nvidia.NVreg_RegistryDwords=EnableBrightnessControl=1 /' /etc/default/grub
+fi
 
 # --- Активация автозапуска сервисов ---
 echo "[*] Включение сервисов..."
