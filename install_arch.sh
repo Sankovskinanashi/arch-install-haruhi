@@ -5,8 +5,7 @@ set -euo pipefail
 # Arch Linux Automated Installation for Dual-Boot Laptop
 # Hostname: haruhi | User: kyon
 # EFI (1 GB FAT32), root (59 GB ext4)
-# GNOME, NVIDIA (с поддержкой Vulkan через nvidia-utils и vulkan-icd-loader),
-# Flatpak, yay, multilib, и т.д.
+# GNOME, NVIDIA (vulkan), Flatpak, yay, multilib, etc.
 # ============================================================
 
 if [[ $EUID -ne 0 ]]; then
@@ -113,7 +112,12 @@ pacman -S --noconfirm --needed \
 
 # --- Установка AUR-хелпера (yay) от пользователя kyon ---
 echo "[*] Установка AUR-хелпера yay..."
-runuser -u kyon -- bash -c '\n  cd /home/kyon\n  git clone https://aur.archlinux.org/yay.git\n  cd yay && makepkg -si --noconfirm\n'
+runuser -u kyon -- bash -c '
+cd /home/kyon
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si --noconfirm
+'
 
 # --- Установка AUR-пакетов ---
 echo "[*] Установка AUR-пакетов..."
