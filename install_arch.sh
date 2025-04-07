@@ -108,7 +108,7 @@ pacman -Syu --noconfirm
 echo "[*] Установка GNOME и базовых программ..."
 pacman -S --noconfirm --needed \
   gnome gdm gnome-tweaks gnome-shell-extensions flatpak ntfs-3g alacritty \
-  mesa nvidia nvidia-utils vulkan-icd-loader vulkan-intel \
+  mesa nvidia-dkms nvidia-utils nvidia-settings vulkan-icd-loader vulkan-intel \
   pipewire pipewire-alsa pipewire-pulse wireplumber pavucontrol \
   networkmanager wireguard-tools openssh \
   obs-studio krita steam \
@@ -117,7 +117,8 @@ pacman -S --noconfirm --needed \
   bluez bluez-utils blueman
 
 # --- Установка проприетарных драйверов NVIDIA ---
-echo "[*] Проприетарные драйверы NVIDIA установлены через пакеты nvidia и nvidia-utils."
+echo "[*] Проприетарные драйверы NVIDIA установлены через пакеты nvidia-dkms, nvidia-utils и nvidia-settings."
+mkinitcpio -P
 
 # --- Установка AUR-хелпера (yay) от пользователя kyon ---
 echo "[*] Установка AUR-хелпера yay..."
