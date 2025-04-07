@@ -47,7 +47,7 @@ mount "$EFI_PART" /mnt/boot/efi
 
 # === 4. Установка базовой системы ===
 echo "[+] Установка базовой системы..."
-pacstrap /mnt base base-devel linux linux-firmware intel-ucode nano git grub efibootmgr networkmanager
+pacstrap /mnt base base-devel linux linux-firmware intel-ucode nano git grub efibootmgr networkmanager reflector
 
 # === 5. Генерация fstab ===
 echo "[+] Генерация fstab..."
@@ -100,6 +100,9 @@ sed -i '/#Include = \/etc\/pacman.d\/mirrorlist/s/^#//' /etc/pacman.conf
 
 # --- Очистка mirrorlist от лишних строк ---
 sed -i '/^options/d' /etc/pacman.d/mirrorlist
+
+echo "[*] Обновление списка зеркал..."
+reflector --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
 
 echo "[*] Обновление системы..."
 pacman -Syu --noconfirm
@@ -169,7 +172,7 @@ arch-chroot /mnt /root/chroot_script.sh
 
 # === 8. Установка GRUB ===
 echo "[+] Установка загрузчика GRUB..."
-arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Arch
+arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Arch --recheck
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
 # === 9. Финал: Отмонтирование разделов ===
