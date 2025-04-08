@@ -9,7 +9,7 @@ set -euo pipefail
 # Arch Linux Automated Installation for Dual-Boot Laptop
 # Hostname: haruhi | User: kyon
 # EFI: 1 GB FAT32, ROOT: 59 GB ext4
-# GNOME, NVIDIA (с поддержкой управления яркостью), Flatpak, AUR (yay), multilib и прочее.
+# GNOME, Intel GPU (с поддержкой управления яркостью), Flatpak, AUR (yay), multilib и прочее.
 # ============================================================
 
 if [[ $EUID -ne 0 ]]; then
@@ -111,17 +111,13 @@ pacman -Syu --noconfirm
 echo "[*] Установка GNOME и базовых программ..."
 pacman -S --noconfirm --needed \
   gnome gdm gnome-tweaks gnome-shell-extensions flatpak ntfs-3g alacritty \
-  mesa nvidia-dkms nvidia-utils nvidia-settings vulkan-icd-loader vulkan-intel \
+  mesa xf86-video-intel vulkan-intel \
   pipewire pipewire-alsa pipewire-pulse wireplumber pavucontrol \
   networkmanager wireguard-tools openssh \
   obs-studio krita steam \
   htop wget curl bash-completion man-db man-pages neovim \
   nautilus gparted unzip p7zip rsync \
   bluez bluez-utils blueman
-
-# --- Установка проприетарных драйверов NVIDIA ---
-echo "[*] Проприетарные драйверы NVIDIA установлены через пакеты nvidia-dkms, nvidia-utils и nvidia-settings."
-mkinitcpio -P
 
 # --- Установка AUR-хелпера (yay) от пользователя kyon ---
 echo "[*] Установка AUR-хелпера yay..."
@@ -131,10 +127,6 @@ git clone https://aur.archlinux.org/yay.git
 cd yay
 makepkg -si --noconfirm
 '
-
-# --- Установка AUR-пакетов ---
-echo "[*] Установка AUR-пакетов..."
-runuser -u kyon -- yay -S --noconfirm visual-studio-code-bin discord obsidian
 
 # --- Установка Flatpak-приложений ---
 echo "[*] Установка Flatpak-приложений..."
