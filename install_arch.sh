@@ -148,11 +148,14 @@ flatpak install -y flathub \
   org.gnome.Extensions \
   org.libreoffice.LibreOffice
 
-# --- Настройка управления яркостью NVIDIA --- 
-echo "[*] Настройка параметра ядра для управления яркостью..."
-if grep -q '^GRUB_CMDLINE_LINUX=' /etc/default/grub; then
-  sed -i 's/^GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX=\"nvidia.NVreg_RegistryDwords=EnableBrightnessControl=1 /' /etc/default/grub
-fi
+# --- Настройка управления яркостью для Intel ---
+echo "[*] Настройка управления яркостью для Intel..."
+cat << 'EOL' > /etc/udev/rules.d/90-backlight.rules
+ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="intel_backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness"
+ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="intel_backlight", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+EOL
+
+echo "[*] Настройка завершена."
 
 # --- Активация автозапуска сервисов ---
 echo "[*] Включение сервисов..."
