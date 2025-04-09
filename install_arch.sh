@@ -51,7 +51,7 @@ timedatectl set-ntp true
 
 # === 5. Установка базовой системы ===
 echo "[+] Установка базовой системы..."
-pacstrap /mnt base base-devel linux linux-firmware intel-ucode nano git grub efibootmgr networkmanager reflector
+pacstrap /mnt base base-devel linux linux-firmware intel-ucode nano git grub efibootmgr networkmanager
 
 # === 6. Генерация fstab ===
 echo "[+] Генерация fstab..."
@@ -100,13 +100,10 @@ echo "[*] Активация multilib-репозитория..."
 sed -i '/#\[multilib\]/s/^#//' /etc/pacman.conf
 sed -i '/#Include = \/etc\/pacman.d\/mirrorlist/s/^#//' /etc/pacman.conf
 
-# --- Обновление списка зеркал ---
-echo "[*] Обновление списка зеркал..."
-reflector --latest 10 --protocol https --sort rate --download-timeout 20 --save /etc/pacman.d/mirrorlist || {
-  echo "[!] Reflector не смог обновить зеркала. Обновляю вручную..."
-  curl -s "https://archlinux.org/mirrorlist/?country=all&protocol=https&use_mirror_status=on" | \
-  sed -e 's/^#Server/Server/' -e '/^#/d' > /etc/pacman.d/mirrorlist
-}
+# --- Обновление списка зеркал вручную ---
+echo "[*] Обновление списка зеркал вручную..."
+curl -s "https://archlinux.org/mirrorlist/?country=all&protocol=https&use_mirror_status=on" | \
+sed -e 's/^#Server/Server/' -e '/^#/d' > /etc/pacman.d/mirrorlist
 
 echo "[*] Обновление системы..."
 pacman -Syu --noconfirm
