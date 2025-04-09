@@ -1,6 +1,5 @@
 #!/bin/bash
 # Автоматическая конвертация CRLF в LF в самом скрипте (удаление \r)
-# Если в файле есть символы возврата каретки, они будут удалены.
 sed -i 's/\r$//' "$0"
 
 set -euo pipefail
@@ -9,7 +8,7 @@ set -euo pipefail
 # Arch Linux Automated Installation for Dual-Boot Laptop
 # Hostname: haruhi | User: kyon
 # EFI: 1 GB FAT32, ROOT: 59 GB ext4
-# GNOME, Intel GPU (с поддержкой управления яркостью), Flatpak, AUR (yay), multilib и прочее.
+# GNOME, NVIDIA/Intel GPU (универсальное управление яркостью), Flatpak, AUR (yay), multilib и прочее.
 # ============================================================
 
 if [[ $EUID -ne 0 ]]; then
@@ -17,8 +16,9 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# === 1. Запрос разделов EFI и ROOT ===
 echo "=== Arch Linux Dual-Boot Installer ==="
+
+# === 1. Запрос разделов EFI и ROOT ===
 read -p "Введите путь к EFI-разделу (FAT32): " EFI_PART
 read -p "Введите путь к корневому разделу (ext4): " ROOT_PART
 echo ""
@@ -45,15 +45,19 @@ echo "[+] Создание и монтирование точки /mnt/boot/efi.
 mkdir -p /mnt/boot/efi
 mount "$EFI_PART" /mnt/boot/efi
 
-# === 4. Установка базовой системы ===
+# === 4. Проверка и синхронизация времени ===
+echo "[+] Синхронизация времени..."
+timedatectl set-ntp true
+
+# === 5. Установка базовой системы ===
 echo "[+] Установка базовой системы..."
 pacstrap /mnt base base-devel linux linux-firmware intel-ucode nano git grub efibootmgr networkmanager reflector
 
-# === 5. Генерация fstab ===
+# === 6. Генерация fstab ===
 echo "[+] Генерация fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
 
-# === 6. Создание скрипта для конфигурации в chroot ===
+# === 7. Создание скрипта для конфигурации в chroot ===
 echo "[+] Создание chroot-скрипта..."
 cat > /mnt/root/chroot_script.sh << 'EOF'
 #!/bin/bash
@@ -67,11 +71,9 @@ ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
 hwclock --systohc
 
 echo "[*] Генерация локали..."
-# Раскомментируем необходимые локали:
 sed -i 's/^#\(ru_RU.UTF-8\)/\1/' /etc/locale.gen
 sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
 locale-gen
-# Устанавливаем русский язык:
 echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 echo "KEYMAP=ru" > /etc/vconsole.conf
 
@@ -93,25 +95,27 @@ echo "[*] Установка пароля для пользователя kyon..
 passwd kyon
 grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
-# --- Активация репозитория multilib ---
+# --- Активация multilib-репозитория ---
 echo "[*] Активация multilib-репозитория..."
 sed -i '/#\[multilib\]/s/^#//' /etc/pacman.conf
 sed -i '/#Include = \/etc\/pacman.d\/mirrorlist/s/^#//' /etc/pacman.conf
 
-# --- Очистка mirrorlist от лишних строк ---
-sed -i '/^options/d' /etc/pacman.d/mirrorlist
-
+# --- Обновление списка зеркал ---
 echo "[*] Обновление списка зеркал..."
-reflector --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+reflector --latest 10 --protocol https --sort rate --download-timeout 20 --save /etc/pacman.d/mirrorlist || {
+  echo "[!] Reflector не смог обновить зеркала. Обновляю вручную..."
+  curl -s "https://archlinux.org/mirrorlist/?country=all&protocol=https&use_mirror_status=on" | \
+  sed -e 's/^#Server/Server/' -e '/^#/d' > /etc/pacman.d/mirrorlist
+}
 
 echo "[*] Обновление системы..."
 pacman -Syu --noconfirm
 
-# --- Установка GNOME и основных пакетов ---
-echo "[*] Установка GNOME и базовых программ..."
+# --- Установка GNOME и универсального управления яркостью ---
+echo "[*] Установка GNOME и драйверов NVIDIA/Intel..."
 pacman -S --noconfirm --needed \
   gnome gdm gnome-tweaks gnome-shell-extensions flatpak ntfs-3g alacritty \
-  mesa xf86-video-intel vulkan-intel \
+  mesa nvidia-dkms nvidia-utils nvidia-settings vulkan-icd-loader vulkan-intel \
   pipewire pipewire-alsa pipewire-pulse wireplumber pavucontrol \
   networkmanager wireguard-tools openssh \
   obs-studio krita steam \
@@ -119,37 +123,21 @@ pacman -S --noconfirm --needed \
   nautilus gparted unzip p7zip rsync \
   bluez bluez-utils blueman
 
-# --- Установка AUR-хелпера (yay) от пользователя kyon ---
-echo "[*] Установка AUR-хелпера yay..."
-runuser -u kyon -- bash -c '
-cd /home/kyon
-git clone https://aur.archlinux.org/yay.git
-cd yay
-makepkg -si --noconfirm
-'
-
-# --- Установка Flatpak-приложений ---
-echo "[*] Установка Flatpak-приложений..."
-flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install -y flathub \
-  org.mozilla.firefox \
-  org.telegram.desktop \
-  md.obsidian.Obsidian \
-  com.obsproject.Studio \
-  org.kde.krita \
-  org.gnome.Extensions \
-  org.libreoffice.LibreOffice
-
-# --- Настройка управления яркостью для Intel ---
-echo "[*] Настройка управления яркостью для Intel..."
+# --- Настройка универсального управления яркостью ---
+echo "[*] Настройка универсального управления яркостью..."
 cat << 'EOL' > /etc/udev/rules.d/90-backlight.rules
+# Intel GPU
 ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="intel_backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness"
 ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="intel_backlight", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+
+# NVIDIA GPU
+ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="nvidia_backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness"
+ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="nvidia_backlight", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
 EOL
 
 echo "[*] Настройка завершена."
 
-# --- Активация автозапуска сервисов ---
+# --- Настройка автозапуска сервисов ---
 echo "[*] Включение сервисов..."
 systemctl enable NetworkManager
 systemctl enable gdm
@@ -161,16 +149,23 @@ EOF
 
 chmod +x /mnt/root/chroot_script.sh
 
-# === 7. Запуск chroot-скрипта ===
+# === 8. Запуск chroot-скрипта ===
 echo "[+] Запуск скрипта в chroot..."
 arch-chroot /mnt /root/chroot_script.sh
 
-# === 8. Установка GRUB ===
+# === 9. Установка GRUB ===
 echo "[+] Установка загрузчика GRUB..."
-arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=Arch --recheck
+if [[ -d /sys/firmware/efi/efivars ]]; then
+  echo "[*] UEFI режим активен."
+  arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+else
+  echo "[!] Система загружена в режиме Legacy BIOS. Проверьте настройки BIOS."
+  exit 1
+fi
+
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
-# === 9. Финал: Отмонтирование разделов ===
+# === 10. Финал: Отмонтирование разделов ===
 echo "[+] Отмонтирование разделов..."
 umount -R /mnt
 
