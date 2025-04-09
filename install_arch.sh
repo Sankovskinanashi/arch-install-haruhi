@@ -25,18 +25,18 @@ echo "  /dev/ROOT_PART - на ваш корневой раздел"
 read -p "Нажмите любую клавишу для продолжения..."
 
 echo "[+] Форматирование EFI-раздела /dev/EFI_PART в FAT32..."
-mkfs.fat -F32 /dev/EFI_PART
+mkfs.fat -F32 /dev/sda4
 
 echo "[+] Форматирование корневого раздела /dev/ROOT_PART в ext4..."
-mkfs.ext4 /dev/ROOT_PART
+mkfs.ext4 /dev/sda5
 
 # === Этап 2: Монтирование разделов ===
 echo "[+] Монтирование корневого раздела в /mnt..."
-mount /dev/ROOT_PART /mnt
+mount /dev/sda5 /mnt
 
 echo "[+] Создание и монтирование точки /mnt/boot/efi..."
 mkdir -p /mnt/boot/efi
-mount /dev/EFI_PART /mnt/boot/efi
+mount /dev/sda4 /mnt/boot/efi
 
 # === Этап 3: Синхронизация времени ===
 echo "[+] Синхронизация времени (NTP)..."
