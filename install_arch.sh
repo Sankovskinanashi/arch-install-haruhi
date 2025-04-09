@@ -1,81 +1,56 @@
 #!/bin/bash
-# Автоматическая конвертация CRLF → LF, чтобы не требовалось вручную запускать sed.
+# Автоматическая конвертация CRLF в LF (удаление \r)
 sed -i 's/\r$//' "$0"
 
 set -euo pipefail
 
 # ============================================================
-# Arch Linux Automated Installation for Dual-Boot Laptop
-# Hostname: haruhi | User: kyon
-# Использует 60 ГБ свободного пространства:
-#   Создаются 2 раздела: EFI (1 GB FAT32) и ROOT (~59 GB ext4)
-# GNOME, NVIDIA/Intel GPU (универсальное управление яркостью),
-# Flatpak, AUR (yay), multilib и прочее.
+# Arch Linux Automated Installation
+# Использование следующих шагов:
+# 1. Форматирование разделов (EFI и ROOT)
+# 2. Монтирование разделов
+# 3. Синхронизация времени
+# 4. Установка базовой системы и генерация fstab
+# 5. Вход в chroot: настройка локали (русская), hostname, создание пользователя,
+#    активация репозитория multilib, обновление системы (pacman -Syu),
+#    установка GNOME, Flatpak-приложений, и установка GRUB.
+# 6. Завершение установки: выход из chroot, размонтирование и перезагрузка.
 # ============================================================
 
-# --- 1. Запрос диска для разметки ---
-echo "=== Arch Linux Automated Installation ==="
-echo "На указанном диске будет создано 2 новых раздела из свободного пространства:"
-echo " - EFI-раздел: 1 ГБ (FAT32)"
-echo " - ROOT-раздел: оставшиеся ~59 ГБ (ext4)"
-read -p "Введите диск, на котором имеется 60 ГБ свободного места (например, /dev/sda или /dev/nvme0n1): " DISK
-echo ""
-echo "Будет произведена разметка диска $DISK."
-read -p "Продолжить? (y/n): " CONFIRM
-if [[ "$CONFIRM" != "y" ]]; then
-  echo "Отмена установки."
-  exit 1
-fi
+# === Этап 1: Форматирование разделов ===
+echo "=== Arch Linux Automated Installer ==="
+echo "Перед запуском отредактируйте этот скрипт, заменив:"
+echo "  /dev/EFI_PART - на ваш EFI-раздел"
+echo "  /dev/ROOT_PART - на ваш корневой раздел"
+read -p "Нажмите любую клавишу для продолжения..."
 
-# --- 2. Создание разделов из свободного пространства ---
-echo "[*] Создание новых разделов на диске $DISK..."
-# Используем sfdisk для создания двух новых разделов:
-# Первая запись: размер 1G, тип EF (EFI System Partition).
-# Вторая запись: остальное свободное пространство, тип Linux.
-sfdisk --no-reread "$DISK" <<EOF
-,1G,EF
-,,L
-EOF
+echo "[+] Форматирование EFI-раздела /dev/EFI_PART в FAT32..."
+mkfs.fat -F32 /dev/EFI_PART
 
-# Определяем имена новых разделов. Для NVMe-устройств нужно использовать суффикс p (например, /dev/nvme0n1p1).
-if [[ "$DISK" =~ nvme ]]; then
-  EFI_PART="${DISK}p1"
-  ROOT_PART="${DISK}p2"
-else
-  EFI_PART="${DISK}1"
-  ROOT_PART="${DISK}2"
-fi
+echo "[+] Форматирование корневого раздела /dev/ROOT_PART в ext4..."
+mkfs.ext4 /dev/ROOT_PART
 
-echo "[*] Новые разделы: EFI: $EFI_PART, ROOT: $ROOT_PART"
-
-# --- 3. Форматирование разделов ---
-echo "[+] Форматирование EFI-раздела $EFI_PART в FAT32..."
-mkfs.fat -F32 "$EFI_PART"
-
-echo "[+] Форматирование ROOT-раздела $ROOT_PART в ext4..."
-mkfs.ext4 "$ROOT_PART"
-
-# --- 4. Монтирование разделов ---
-echo "[+] Монтирование ROOT-раздела в /mnt..."
-mount "$ROOT_PART" /mnt
+# === Этап 2: Монтирование разделов ===
+echo "[+] Монтирование корневого раздела в /mnt..."
+mount /dev/ROOT_PART /mnt
 
 echo "[+] Создание и монтирование точки /mnt/boot/efi..."
 mkdir -p /mnt/boot/efi
-mount "$EFI_PART" /mnt/boot/efi
+mount /dev/EFI_PART /mnt/boot/efi
 
-# --- 5. Синхронизация времени ---
+# === Этап 3: Синхронизация времени ===
 echo "[+] Синхронизация времени (NTP)..."
 timedatectl set-ntp true
 
-# --- 6. Установка базовой системы ---
+# === Этап 4: Установка базовой системы ===
 echo "[+] Установка базовой системы..."
-pacstrap /mnt base base-devel linux linux-firmware intel-ucode nano git grub efibootmgr networkmanager reflector
+pacstrap /mnt base base-devel linux linux-firmware intel-ucode nano git grub efibootmgr networkmanager
 
-# --- 7. Генерация fstab ---
+# === Этап 5: Генерация fstab ===
 echo "[+] Генерация fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
 
-# --- 8. Создание скрипта для конфигурации в chroot ---
+# === Этап 6: Конфигурация в chroot-среде ===
 echo "[+] Создание chroot-скрипта..."
 cat > /mnt/root/chroot_script.sh << 'EOF'
 #!/bin/bash
@@ -83,28 +58,26 @@ set -euo pipefail
 echo ""
 echo "=== Конфигурация системы внутри chroot ==="
 
-# --- Системные настройки и локали ---
-echo "[*] Настройка временной зоны и аппаратных часов..."
+# --- Настройка времени и локали ---
+echo "[*] Настройка временной зоны..."
 ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
 hwclock --systohc
 
 echo "[*] Генерация локали..."
-# Раскомментируем ru_RU.UTF-8 и en_US.UTF-8 в /etc/locale.gen
 sed -i 's/^#\(ru_RU.UTF-8\)/\1/' /etc/locale.gen
 sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
 locale-gen
-# Устанавливаем русский язык:
 echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
 echo "KEYMAP=ru" > /etc/vconsole.conf
 
 # --- Настройка hostname и hosts ---
 echo "[*] Настройка hostname..."
 echo haruhi > /etc/hostname
-cat > /etc/hosts << H
+cat > /etc/hosts << EOFHOSTS
 127.0.0.1   localhost
 ::1         localhost
 127.0.1.1   haruhi.localdomain haruhi
-H
+EOFHOSTS
 
 # --- Установка паролей и создание пользователя ---
 echo "[*] Установка пароля для root..."
@@ -116,33 +89,20 @@ passwd kyon
 grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
 # --- Активация multilib-репозитория ---
-echo "[*] Активация multilib-репозитория..."
-sed -i '/#\[multilib\]/s/^#//' /etc/pacman.conf
-sed -i '/#Include = \/etc\/pacman.d\/mirrorlist/s/^#//' /etc/pacman.conf
+echo "[*] Активируйте multilib-репозиторий вручную."
+echo "   Откройте /etc/pacman.conf и раскомментируйте раздел [multilib] и строку:"
+echo "       Include = /etc/pacman.d/mirrorlist"
+read -n 1 -s -r -p "Нажмите любую клавишу для открытия редактора nano..."
+nano /etc/pacman.conf
 
-# --- Обновление зеркал ---
-echo "[*] Обновление списка зеркал с помощью reflector..."
-reflector --latest 10 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
-
+# --- Обновление системы ---
 echo "[*] Обновление системы..."
 pacman -Syu --noconfirm
 
-# --- Установка GNOME и базовых пакетов ---
+# --- Установка GNOME и основных пакетов ---
 echo "[*] Установка GNOME и базовых программ..."
-pacman -S --noconfirm --needed \
-  gnome gdm gnome-tweaks gnome-shell-extensions flatpak ntfs-3g alacritty \
-  mesa xf86-video-intel vulkan-intel \
-  pipewire pipewire-alsa pipewire-pulse wireplumber pavucontrol \
-  networkmanager wireguard-tools openssh \
-  obs-studio krita steam \
-  htop wget curl bash-completion man-db man-pages neovim \
-  nautilus gparted unzip p7zip rsync \
-  bluez bluez-utils blueman
-
-# --- Установка драйверов NVIDIA (если понадобится) ---
-echo "[*] Проприетарные драйверы NVIDIA можно установить позже, например с помощью:"
-echo "    pacman -S --noconfirm nvidia-dkms nvidia-utils nvidia-settings lib32-nvidia-utils"
-# Раскомментируйте и настройте этот блок, если требуется драйвер NVIDIA.
+pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam
+  
 
 # --- Установка AUR-хелпера (yay) от пользователя kyon ---
 echo "[*] Установка AUR-хелпера yay..."
@@ -155,7 +115,7 @@ makepkg -si --noconfirm
 
 # --- Установка AUR-пакетов ---
 echo "[*] Установка AUR-пакетов..."
-runuser -u kyon -- yay -S --noconfirm visual-studio-code-bin discord obsidian
+runuser -u kyon -- yay -S --noconfirm visual-studio-code-bin discord
 
 # --- Установка Flatpak-приложений ---
 echo "[*] Установка Flatpak-приложений..."
@@ -169,22 +129,11 @@ flatpak install -y flathub \
   org.gnome.Extensions \
   org.libreoffice.LibreOffice
 
-# --- Настройка управления яркостью (универсальное правило) ---
-echo "[*] Настройка правил управления яркостью..."
-cat << 'EOL' > /etc/udev/rules.d/90-backlight.rules
-# Правила для Intel GPU
-ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="intel_backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness"
-ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="intel_backlight", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
-# Правила для NVIDIA GPU (если поддерживается)
-ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="nvidia_backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness"
-ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="nvidia_backlight", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
-EOL
 
-# --- Активация автозапуска сервисов ---
+# --- Настройка автозапуска сервисов ---
 echo "[*] Включение сервисов..."
 systemctl enable NetworkManager
 systemctl enable gdm
-systemctl enable bluetooth
 
 echo ""
 echo "=== Конфигурация в chroot завершена ==="
@@ -192,11 +141,11 @@ EOF
 
 chmod +x /mnt/root/chroot_script.sh
 
-# === 9. Запуск chroot-скрипта ===
+# === Этап 7: Запуск chroot-скрипта ===
 echo "[+] Запуск скрипта в chroot..."
 arch-chroot /mnt /root/chroot_script.sh
 
-# === 10. Установка GRUB (только в UEFI-режиме) ===
+# === Этап 8: Установка загрузчика GRUB (только в UEFI-режиме) ===
 echo "[+] Проверка UEFI-режима..."
 if [[ -d /sys/firmware/efi/efivars ]]; then
   echo "[*] UEFI режим активен. Установка GRUB..."
@@ -207,9 +156,9 @@ else
   exit 1
 fi
 
-# === 11. Финал: Отмонтирование разделов ===
+# === Этап 9: Отмонтирование и перезагрузка ===
 echo "[+] Отмонтирование разделов..."
 umount -R /mnt
 
 echo ""
-echo "=== Установка завершена. Перезагрузи систему! ==="
+echo "=== Установка завершена. Перезагрузите систему! ==="
