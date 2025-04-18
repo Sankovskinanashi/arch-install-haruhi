@@ -179,7 +179,7 @@ useradd -m -G wheel -s /bin/bash $USERNAME
 passwd $USERNAME
 grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
-nano /etc/pacman.conf
+$EDITOR /etc/pacman.conf
 pacman -Syu --noconfirm
 
 pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wine-staging winetricks lutris steam steam-native-runtime gamemode goverlay mangohud lib32-mesa lib32-libglvnd lib32-vulkan-icd-loader lib32-nvidia-utils vulkan-tools vulkan-icd-loader nvidia-dkms nvidia-utils nvidia-settings opencl-nvidia
