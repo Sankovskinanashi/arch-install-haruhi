@@ -3,7 +3,7 @@ set -euo pipefail
 
 EFI_LABEL="EFI"
 ROOT_LABEL="ROOT"
-BOOT_SIZE="512MiB"
+BOOT_SIZE="512M"
 FS_TYPE="ext4"
 DISK=""
 EFI_PART=""
@@ -80,11 +80,10 @@ wipe_and_create_partitions() {
     parted -s "$DISK" mkpart "$EFI_LABEL" fat32 1MiB "$BOOT_SIZE"
     parted -s "$DISK" set 1 esp on
     parted -s "$DISK" mkpart "$ROOT_LABEL" "$FS_TYPE" "$BOOT_SIZE" 100%
-    partprobe "$DISK"
-    sleep 2
+    sync && sleep 1
 
-    EFI_PART=$(lsblk -rno NAME "$DISK" | grep -E '^.+1$' | sed "s|^|/dev/|")
-    ROOT_PART=$(lsblk -rno NAME "$DISK" | grep -E '^.+2$' | sed "s|^|/dev/|")
+    EFI_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?1$" || true)
+    ROOT_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?2$" || true)
 
     if [[ -z "$EFI_PART" || -z "$ROOT_PART" ]]; then
         printf "[!] Не удалось обнаружить созданные разделы\n" >&2
@@ -132,103 +131,124 @@ format_partition() {
 }
 
 mount_partitions() {
-    printf "[+] Монтирование ROOT (%s)...\n" "$ROOT_PART"
+    printf "[+] Монтирование ROOT...\n"
     mount "$ROOT_PART" /mnt
-
-    printf "[+] Монтирование EFI (%s)...\n" "$EFI_PART"
     mkdir -p /mnt/boot/efi
     mount "$EFI_PART" /mnt/boot/efi
 }
 
 enable_ntp() {
+    printf "[+] Включение синхронизации времени...\n"
     timedatectl set-ntp true
 }
 
 install_base_system() {
-    pacstrap /mnt base base-devel linux linux-firmware \
-        intel-ucode nvidia nvidia-utils nvidia-dkms \
-        xorg xorg-xinit gnome gdm \
-        pipewire pipewire-alsa pipewire-pulse wireplumber \
-        networkmanager network-manager-applet \
-        steam lutris wine xorg-xrandr \
-        acpilight xorg-xbacklight brightnessctl
+    printf "[+] Установка базовой системы...\n"
+    pacstrap /mnt base base-devel linux-zen linux-zen-headers linux-firmware intel-ucode nano git grub efibootmgr networkmanager
 }
 
 generate_fstab() {
+    printf "[+] Генерация fstab...\n"
     genfstab -U /mnt >> /mnt/etc/fstab
 }
 
 create_chroot_script() {
-    cat > /mnt/root/chroot_script.sh <<EOF
+    local script_path="/mnt/root/chroot_script.sh"
+    cat > "$script_path" <<EOF
 #!/bin/bash
 set -euo pipefail
 
-ln -sf /usr/share/zoneinfo/${TIMEZONE} /etc/localtime
+ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
 
-sed -i 's/^#${LOCALE}/${LOCALE}/' /etc/locale.gen
+sed -i 's/^#\\($LOCALE\\)/\\1/' /etc/locale.gen
+sed -i 's/^#\\(en_US.UTF-8\\)/\\1/' /etc/locale.gen
 locale-gen
-echo "LANG=${LOCALE}" > /etc/locale.conf
-echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
-echo "${HOSTNAME}" > /etc/hostname
 
-cat > /etc/hosts <<HOSTS
-127.0.0.1 localhost
-::1       localhost
-127.0.1.1 ${HOSTNAME}.localdomain ${HOSTNAME}
+echo "LANG=$LOCALE" > /etc/locale.conf
+echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
+echo "$HOSTNAME" > /etc/hostname
+cat > /etc/hosts << HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 HOSTS
 
 passwd
-useradd -m -G wheel,video -s /bin/bash ${USERNAME}
-passwd ${USERNAME}
-sed -i '/^# %wheel ALL=(ALL:ALL) ALL/s/^# //' /etc/sudoers
+useradd -m -G wheel -s /bin/bash $USERNAME
+passwd $USERNAME
+grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
+$EDITOR /etc/pacman.conf
 pacman -Syu --noconfirm
-runuser -u ${USERNAME} -- bash -c '
-cd /home/${USERNAME}
-git clone https://aur.archlinux.org/yay.git
-cd yay
-makepkg -si --noconfirm
-yay -S --noconfirm visual-studio-code-bin discord
-'
 
-flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install -y flathub org.mozilla.firefox org.telegram.desktop \
-  md.obsidian.Obsidian com.obsproject.Studio org.kde.krita \
-  org.gnome.Extensions org.libreoffice.LibreOffice
+pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wine-staging winetricks lutris steam steam-native-runtime gamemode goverlay mangohud lib32-mesa lib32-libglvnd lib32-vulkan-icd-loader lib32-nvidia-utils vulkan-tools vulkan-icd-loader nvidia-dkms nvidia-utils nvidia-settings opencl-nvidia
 
-mkdir -p /etc/udev/rules.d
-cat > /etc/udev/rules.d/90-backlight.rules <<UDEV
-ACTION=="add", SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
-UDEV
+mkdir -p /etc/profile.d
+cat > /etc/profile.d/game-performance.sh <<GAMEENV
+export __GL_THREADED_OPTIMIZATIONS=1
+export __GL_SYNC_TO_VBLANK=0
+export __GL_SHADER_CACHE=1
+export __GL_SHADER_DISK_CACHE=1
+export __GL_YIELD="USLEEP"
+export MANGOHUD=1
+export DXVK_HUD=0
+export VKD3D_CONFIG=dxr11
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
+export VK_LAYER_PATH=/usr/share/vulkan/implicit_layer.d
+GAMEENV
+chmod +x /etc/profile.d/game-performance.sh
 
-mkdir -p /etc/X11/xorg.conf.d
-cat > /etc/X11/xorg.conf.d/20-nvidia.conf <<XORG
-Section "Device"
-  Identifier "Nvidia Card"
-  Driver "nvidia"
-EndSection
-XORG
+mkdir -p /etc/modules-load.d
+printf "nvidia\\nnvidia_uvm\\nnvidia_drm\\nnvidia_modeset\\n" > /etc/modules-load.d/nvidia.conf
+
+mkdir -p /etc/modprobe.d
+echo "options nvidia-drm modeset=1" > /etc/modprobe.d/nvidia-drm.conf
+
+cat > /etc/systemd/system/set-governor.service <<GOVERNOR
+[Unit]
+Description=Set CPU Governor to Performance
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'for cpu in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "\$cpu/scaling_governor"; done'
+
+[Install]
+WantedBy=multi-user.target
+GOVERNOR
 
 systemctl enable NetworkManager
 systemctl enable gdm
+systemctl enable gamemoded.service
+systemctl enable set-governor.service
+
+mkinitcpio -P
 EOF
 
-    chmod +x /mnt/root/chroot_script.sh
+    chmod +x "$script_path"
 }
 
 run_chroot_script() {
+    printf "[+] Запуск конфигурации в chroot...\n"
     arch-chroot /mnt /root/chroot_script.sh
 }
 
 install_grub() {
-    arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+    if [[ -d /sys/firmware/efi/efivars ]]; then
+        printf "[+] UEFI режим обнаружен. Установка GRUB...\n"
+        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+    else
+        printf "[!] Система загружена в режиме BIOS. Установка невозможна.\n" >&2
+        return 1
+    fi
 }
 
 cleanup_and_reboot() {
+    printf "[+] Отмонтирование /mnt...\n"
     umount -R /mnt
-    printf "[✓] Установка завершена. Перезагрузите систему.\n"
+    printf "[✓] Установка завершена. Перезагрузите систему вручную.\n"
 }
 
 main "$@"
