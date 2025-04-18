@@ -212,7 +212,7 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'for cpu in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "\$cpu/scaling_governor"; done'
+ExecStart=/usr/bin/bash -c 'for cpu in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "\${cpu}/scaling_governor"; done'
 
 [Install]
 WantedBy=multi-user.target
