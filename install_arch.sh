@@ -144,9 +144,9 @@ enable_ntp() {
 
 install_base_system() {
     printf "[+] Установка базовой системы...\n"
+  
     pacstrap /mnt base base-devel linux-zen linux-zen-headers linux-firmware intel-ucode nano git grub efibootmgr networkmanager
 }
-
 generate_fstab() {
     printf "[+] Генерация fstab...\n"
     genfstab -U /mnt >> /mnt/etc/fstab
@@ -212,12 +212,11 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'shopt -s nullglob; for cpu in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "${cpu}/scaling_governor"; done; shopt -u nullglob'
+ExecStart=/usr/bin/bash -c 'shopt -s nullglob; for c in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "${c}/scaling_governor"; done; shopt -u nullglob'
 
 [Install]
 WantedBy=multi-user.target
 GOVERNOR
-
 
 systemctl enable NetworkManager
 systemctl enable gdm
