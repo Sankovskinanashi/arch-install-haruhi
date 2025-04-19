@@ -205,18 +205,19 @@ printf "nvidia\\nnvidia_uvm\\nnvidia_drm\\nnvidia_modeset\\n" > /etc/modules-loa
 mkdir -p /etc/modprobe.d
 echo "options nvidia-drm modeset=1" > /etc/modprobe.d/nvidia-drm.conf
 
-cat > /etc/systemd/system/set-governor.service <<GOVERNOR
+cat > /etc/systemd/system/set-governor.service <<'GOVERNOR'
 [Unit]
 Description=Set CPU Governor to Performance
 After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'for cpu in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "\${cpu}/scaling_governor"; done'
+ExecStart=/usr/bin/bash -c 'shopt -s nullglob; for cpu in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "${cpu}/scaling_governor"; done; shopt -u nullglob'
 
 [Install]
 WantedBy=multi-user.target
 GOVERNOR
+
 
 systemctl enable NetworkManager
 systemctl enable gdm
