@@ -144,9 +144,9 @@ enable_ntp() {
 
 install_base_system() {
     printf "[+] Установка базовой системы...\n"
-  
     pacstrap /mnt base base-devel linux-zen linux-zen-headers linux-firmware intel-ucode nano git grub efibootmgr networkmanager
 }
+
 generate_fstab() {
     printf "[+] Генерация fstab...\n"
     genfstab -U /mnt >> /mnt/etc/fstab
@@ -168,7 +168,7 @@ locale-gen
 echo "LANG=$LOCALE" > /etc/locale.conf
 echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
 echo "$HOSTNAME" > /etc/hostname
-cat > /etc/hosts << HOSTS
+cat > /etc/hosts <<HOSTS
 127.0.0.1   localhost
 ::1         localhost
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
@@ -212,7 +212,7 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'shopt -s nullglob; for c in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "${c}/scaling_governor"; done; shopt -u nullglob'
+ExecStart=/usr/bin/bash -c 'shopt -s nullglob; for c in /sys/devices/system/cpu/cpufreq/policy*; do echo performance > "\${c}/scaling_governor"; done; shopt -u nullglob'
 
 [Install]
 WantedBy=multi-user.target
@@ -250,8 +250,5 @@ cleanup_and_reboot() {
     umount -R /mnt
     printf "[✓] Установка завершена. Перезагрузите систему вручную.\n"
 }
-: "${cpu:=}"
-: "${user:=}"
-: "${sys:=}"
 
 main "$@"
