@@ -250,5 +250,8 @@ cleanup_and_reboot() {
     umount -R /mnt
     printf "[✓] Установка завершена. Перезагрузите систему вручную.\n"
 }
+: "${cpu:=}"
+: "${user:=}"
+: "${sys:=}"
 
 main "$@"
