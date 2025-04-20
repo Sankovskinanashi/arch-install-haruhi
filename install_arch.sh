@@ -154,6 +154,8 @@ generate_fstab() {
 
 create_chroot_script() {
     local script_path="/mnt/root/chroot_script.sh"
+    mkdir -p "$(dirname "$script_path")"
+
     cat > "$script_path" <<EOF
 #!/bin/bash
 set -euo pipefail
@@ -174,12 +176,11 @@ cat > /etc/hosts <<HOSTS
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 HOSTS
 
-passwd
+echo "root:5489" | chpasswd
 useradd -m -G wheel -s /bin/bash $USERNAME
-passwd $USERNAME
+echo "$USERNAME:4598" | chpasswd
 grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
-$EDITOR /etc/pacman.conf
 pacman -Syu --noconfirm
 
 pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wine-staging winetricks lutris steam steam-native-runtime gamemode goverlay mangohud lib32-mesa lib32-libglvnd lib32-vulkan-icd-loader lib32-nvidia-utils vulkan-tools vulkan-icd-loader nvidia-dkms nvidia-utils nvidia-settings opencl-nvidia
@@ -229,11 +230,18 @@ fi
 
 systemctl enable set-governor.service
 
-mkinitcpio -P
+if [[ -f /etc/mkinitcpio.conf ]]; then
+    sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect keyboard sd-vconsole modconf block filesystems fsck)/' /etc/mkinitcpio.conf
+    mkinitcpio -P
+else
+    printf "[!] Файл /etc/mkinitcpio.conf не найден. Пропускаем сборку ядра.\n" >&2
+fi
 EOF
 
     chmod +x "$script_path"
 }
+
+
 
 run_chroot_script() {
     printf "[+] Запуск конфигурации в chroot...\n"
