@@ -220,7 +220,13 @@ GOVERNOR
 
 systemctl enable NetworkManager
 systemctl enable gdm
-systemctl enable gamemoded.service
+
+if systemctl list-unit-files | grep -q '^gamemoded.service'; then
+    systemctl enable gamemoded.service
+else
+    printf "[!] gamemoded.service не найден, пропускаем активацию\n" >&2
+fi
+
 systemctl enable set-governor.service
 
 mkinitcpio -P
