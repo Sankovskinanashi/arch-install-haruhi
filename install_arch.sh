@@ -18,93 +18,152 @@ EDITOR="nano"
 main() {
     detect_disks
     select_disk
-    choose_partitioning
+    list_partitions
+    prompt_partition_action
     mount_partitions
     enable_ntp
-    install_base
-    gen_fstab
-    setup_chroot
-    chroot_exec
+    install_base_system
+    generate_fstab
+    create_chroot_script
+    run_chroot_script
     install_grub
-    finish
+    cleanup_and_reboot
 }
 
 detect_disks() {
     printf "[*] Доступные диски:\n"
-    lsblk -dno NAME,SIZE,MODEL | while read -r line; do printf "  /dev/%s\n" "$line"; done
+    lsblk -dno NAME,SIZE,MODEL | while read -r line; do
+        printf "  /dev/%s\n" "$line"
+    done
 }
 
 select_disk() {
-    read -rp "[?] Укажите диск (например /dev/sda): " DISK
-    [[ ! -b "$DISK" ]] && printf "[!] Диск не найден: %s\n" "$DISK" >&2 && return 1
+    read -rp "[?] Укажите диск для установки (например /dev/sda): " DISK
+    if [[ ! -b "$DISK" ]]; then
+        printf "[!] Указанный диск не существует: %s\n" "$DISK" >&2
+        return 1
+    fi
 }
 
-choose_partitioning() {
-    printf "\n[?] Действие с разделами:\n  [1] Использовать существующие\n  [2] Очистить и создать заново\n"
-    read -rp "Выбор: " opt
-    [[ "$opt" == "1" ]] && reuse_parts || create_parts
+list_partitions() {
+    printf "\n[*] Существующие разделы на %s:\n" "$DISK"
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT "$DISK"
 }
 
-reuse_parts() {
-    read -rp "[?] EFI раздел: " EFI_PART
-    read -rp "[?] ROOT раздел: " ROOT_PART
-    format "$EFI_PART" fat32 "$EFI_LABEL"
-    format "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
+prompt_partition_action() {
+    printf "\n[?] Что вы хотите сделать с разделами?\n"
+    printf "  [1] Использовать существующие\n"
+    printf "  [2] Удалить все и создать заново\n"
+    read -rp "Выбор: " action
+    case "$action" in
+        1) select_existing_partitions ;;
+        2) wipe_and_create_partitions ;;
+        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
+    esac
 }
 
-create_parts() {
-    read -rp "[!] Удалить всё на $DISK? (yes/[no]): " ok
-    [[ "$ok" != "yes" ]] && return 1
+select_existing_partitions() {
+    read -rp "[?] Укажите EFI раздел (например /dev/sda1): " EFI_PART
+    read -rp "[?] Укажите ROOT раздел (например /dev/sda2): " ROOT_PART
+    choose_filesystem "$ROOT_PART"
+    format_partition "$EFI_PART" fat32 "$EFI_LABEL"
+    format_partition "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
+}
+
+wipe_and_create_partitions() {
+    printf "[!] Все данные на %s будут удалены!\n" "$DISK"
+    read -rp "Продолжить? (yes/[no]): " confirm
+    [[ "$confirm" != "yes" ]] && return 1
+
     wipefs -a "$DISK"
     parted -s "$DISK" mklabel gpt
+
     parted -s "$DISK" mkpart "$EFI_LABEL" fat32 1MiB "$BOOT_SIZE"
     parted -s "$DISK" set 1 esp on
     parted -s "$DISK" mkpart "$ROOT_LABEL" "$FS_TYPE" "$BOOT_SIZE" 100%
-    sync; sleep 1
+
+    sync
+    sleep 1
+
     EFI_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?1$" || true)
     ROOT_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?2$" || true)
-    [[ -z "$EFI_PART" || -z "$ROOT_PART" ]] && printf "[!] Разделы не найдены\n" >&2 && return 1
-    format "$EFI_PART" fat32 "$EFI_LABEL"
-    format "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
+
+    if [[ -z "$EFI_PART" || -z "$ROOT_PART" ]]; then
+        printf "[!] Не удалось обнаружить созданные разделы\n" >&2
+        return 1
+    fi
+
+    choose_filesystem "$ROOT_PART"
+    format_partition "$EFI_PART" fat32 "$EFI_LABEL"
+    format_partition "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
 }
 
-format() {
-    local part="$1" fs="$2" label="$3"
+choose_filesystem() {
+    local part="$1"
+    printf "\n[?] Выберите файловую систему для %s:\n" "$part"
+    printf "  [1] ext4\n"
+    printf "  [2] btrfs\n"
+    read -rp "Выбор: " fs
     case "$fs" in
-        fat32) mkfs.fat -F32 "$part" ;;
-        ext4) mkfs.ext4 -L "$label" "$part" ;;
-        btrfs) mkfs.btrfs -f -L "$label" "$part" ;;
-        *) printf "[!] Неизвестная ФС: %s\n" "$fs" >&2 && return 1 ;;
+        1) FS_TYPE="ext4" ;;
+        2) FS_TYPE="btrfs" ;;
+        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
+    esac
+}
+
+format_partition() {
+    local part="$1" fstype="$2" label="$3"
+    case "$fstype" in
+        fat32)
+            printf "[+] Форматирование %s в FAT32...\n" "$part"
+            mkfs.fat -F32 "$part" || return 1
+            ;;
+        ext4)
+            printf "[+] Форматирование %s в ext4...\n" "$part"
+            mkfs.ext4 -L "$label" "$part" || return 1
+            ;;
+        btrfs)
+            printf "[+] Форматирование %s в Btrfs...\n" "$part"
+            mkfs.btrfs -f -L "$label" "$part" || return 1
+            ;;
+        *)
+            printf "[!] Неизвестная ФС: %s\n" "$fstype" >&2
+            return 1
+            ;;
     esac
 }
 
 mount_partitions() {
+    printf "[+] Монтирование корневого раздела...\n"
     mount "$ROOT_PART" /mnt
     mkdir -p /mnt/boot/efi
     mount "$EFI_PART" /mnt/boot/efi
 }
 
 enable_ntp() {
+    printf "[+] Включение синхронизации времени...\n"
     timedatectl set-ntp true
 }
 
-install_base() {
-    pacstrap /mnt base base-devel linux linux-headers linux-firmware intel-ucode nano git grub efibootmgr networkmanager
+install_base_system() {
+    printf "[+] Установка базовой системы...\n"
+    pacstrap /mnt base base-devel linux linux-firmware intel-ucode nano git grub efibootmgr networkmanager
 }
 
-gen_fstab() {
+generate_fstab() {
+    printf "[+] Генерация fstab...\n"
     genfstab -U /mnt >> /mnt/etc/fstab
 }
 
-setup_chroot() {
-    local path="/mnt/root/chroot_script.sh"
-    mkdir -p "$(dirname "$path")"
-    cat > "$path" <<EOF
+create_chroot_script() {
+    local script_path="/mnt/root/chroot_script.sh"
+    cat > "$script_path" <<EOF
 #!/bin/bash
 set -euo pipefail
 
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
+
 sed -i 's/^#\\($LOCALE\\)/\\1/' /etc/locale.gen
 sed -i 's/^#\\(en_US.UTF-8\\)/\\1/' /etc/locale.gen
 locale-gen
@@ -112,58 +171,62 @@ locale-gen
 echo "LANG=$LOCALE" > /etc/locale.conf
 echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
 echo "$HOSTNAME" > /etc/hostname
-cat > /etc/hosts <<HOSTS
+cat > /etc/hosts << HOSTS
 127.0.0.1   localhost
 ::1         localhost
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 HOSTS
 
-echo "root:5489" | chpasswd
+passwd
 useradd -m -G wheel -s /bin/bash $USERNAME
-echo "$USERNAME:4598" | chpasswd
+passwd $USERNAME
 grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
+
 $EDITOR /etc/pacman.conf
+
 pacman -Syu --noconfirm
+pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam lutris wine
 
-pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wine-staging winetricks lutris steam steam-native-runtime gamemode goverlay mangohud lib32-mesa lib32-libglvnd lib32-vulkan-icd-loader lib32-nvidia-utils vulkan-tools vulkan-icd-loader nvidia-dkms nvidia-utils nvidia-settings opencl-nvidia
+runuser -u $USERNAME -- bash -c '
+cd /home/$USERNAME
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si --noconfirm
+'
 
-mkdir -p /etc/modules-load.d
-printf "nvidia\\nnvidia_uvm\\nnvidia_drm\\nnvidia_modeset\\n" > /etc/modules-load.d/nvidia.conf
-echo "options nvidia-drm modeset=1" > /etc/modprobe.d/nvidia-drm.conf
+runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
+
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
 
 systemctl enable NetworkManager
 systemctl enable gdm
-
-if systemctl list-unit-files | grep -q '^gamemoded.service'; then
-    systemctl enable gamemoded.service
-else
-    printf "[!] gamemoded.service не найден, пропускаем активацию\n" >&2
-fi
-
-if [[ -f /etc/mkinitcpio.conf ]]; then
-    sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect keyboard sd-vconsole modconf block filesystems fsck)/' /etc/mkinitcpio.conf
-    mkinitcpio -P
-else
-    printf "[!] /etc/mkinitcpio.conf не найден\n" >&2
-fi
 EOF
 
-    chmod +x "$path"
+    chmod +x "$script_path"
 }
 
-chroot_exec() {
+run_chroot_script() {
+    printf "[+] Выполнение конфигурации в chroot...\n"
     arch-chroot /mnt /root/chroot_script.sh
 }
 
 install_grub() {
-    [[ -d /sys/firmware/efi/efivars ]] || { printf "[!] Не EFI режим\n" >&2; return 1; }
-    arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+    if [[ -d /sys/firmware/efi/efivars ]]; then
+        printf "[+] UEFI режим обнаружен. Установка GRUB...\n"
+        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+    else
+        printf "[!] Система не в UEFI режиме. Установка невозможна.\n" >&2
+        return 1
+    fi
 }
 
-finish() {
+cleanup_and_reboot() {
+    printf "[+] Отмонтирование /mnt...\n"
     umount -R /mnt
-    printf "[✓] Установка завершена. Перезагрузите систему.\n"
+    printf "[✓] Установка завершена. Перезагрузите систему вручную.\n"
 }
 
 main "$@"
+
