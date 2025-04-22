@@ -185,7 +185,7 @@ grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 $EDITOR /etc/pacman.conf
 
 pacman -Syu --noconfirm
-pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam lutris wine
+pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam lutris wine dkms libva-nvidia-driver nvidia-dkms xorg-server xorg-xinit
 
 runuser -u $USERNAME -- bash -c '
 cd /home/$USERNAME
