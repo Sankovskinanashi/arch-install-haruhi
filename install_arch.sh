@@ -14,6 +14,7 @@ LOCALE="ru_RU.UTF-8"
 KEYMAP="ru"
 TIMEZONE="Europe/Moscow"
 EDITOR="nano"
+DESKTOP_ENV=""
 
 main() {
     detect_disks
@@ -22,6 +23,7 @@ main() {
     prompt_partition_action
     mount_partitions
     enable_ntp
+    choose_desktop_environment
     install_base_system
     generate_fstab
     create_chroot_script
@@ -29,6 +31,18 @@ main() {
     install_grub
     cleanup_and_reboot
 }
+choose_desktop_environment() {
+    printf "\n[?] Выберите окружение рабочего стола:\n"
+    printf "  [1] GNOME\n"
+    printf "  [2] bspwm (лёгкое, тайлинговое)\n"
+    read -rp "Выбор: " choice
+    case "$choice" in
+        1) DESKTOP_ENV="gnome" ;;
+        2) DESKTOP_ENV="bspwm" ;;
+        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
+    esac
+}
+
 
 detect_disks() {
     printf "[*] Доступные диски:\n"
@@ -185,28 +199,108 @@ grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 $EDITOR /etc/pacman.conf
 
 pacman -Syu --noconfirm
-pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam lutris wine dkms libva-nvidia-driver nvidia-dkms xorg-server xorg-xinit
 
+if [[ "$DESKTOP_ENV" == "gnome" ]]; then
+    pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam lutris wine dkms libva-nvidia-driver nvidia-dkms xorg-server xorg-xinit
+    systemctl enable gdm
+elif [[ "$DESKTOP_ENV" == "bspwm" ]]; then
+        # Настройка минимального окружения и кастомизации
+    pacman -S --noconfirm xorg-server xorg-xinit bspwm sxhkd picom feh rofi alacritty polybar lxappearance ttf-dejavu ttf-liberation ttf-ubuntu-font-family noto-fonts papirus-icon-theme lightdm lightdm-gtk-greeter networkmanager wireguard-tools steam lutris wine dkms libva-nvidia-driver nvidia-dkms
+
+    runuser -u $USERNAME -- bash -c '
+    mkdir -p /home/$USERNAME/.config/{bspwm,sxhkd,polybar,rofi}
+    mkdir -p /home/$USERNAME/.fonts
+
+    # bspwmrc
+    cat > /home/$USERNAME/.config/bspwm/bspwmrc << BSPWMRC
+#!/bin/sh
+sxhkd &
+bspc monitor -d I II III IV V
+picom &
+feh --bg-scale /usr/share/backgrounds/archlinux/arch-wallpaper.jpg &
+~/.config/polybar/launch.sh &
+BSPWMRC
+
+    chmod +x /home/$USERNAME/.config/bspwm/bspwmrc
+
+    # sxhkdrc
+    cat > /home/$USERNAME/.config/sxhkd/sxhkdrc << SXHKDRC
+super + Return
+    alacritty
+
+super + q
+    bspc node -c
+
+super + {h,j,k,l}
+    bspc node -f {west,south,north,east}
+SXHKDRC
+
+    # polybar config
+    cat > /home/$USERNAME/.config/polybar/config.ini << POLYBAR
+[bar/main]
+width = 100%
+height = 28
+modules-left = workspaces
+modules-right = date time
+font-0 = monospace-10
+
+[module/workspaces]
+type = internal/bspwm
+
+[module/date]
+type = internal/date
+date = %Y-%m-%d
+interval = 60
+
+[module/time]
+type = internal/date
+time = %H:%M:%S
+interval = 1
+POLYBAR
+
+    # polybar launch script
+    cat > /home/$USERNAME/.config/polybar/launch.sh << 'LAUNCH'
+#!/bin/bash
+killall -q polybar
+while pgrep -u \$UID -x polybar >/dev/null; do sleep 1; done
+polybar main &
+LAUNCH
+    chmod +x /home/$USERNAME/.config/polybar/launch.sh
+
+    # GTK тема и иконки
+    echo -e "[Settings]\ngtk-theme-name=Adwaita-dark\nicon-theme-name=Papirus" > /home/$USERNAME/.config/gtk-3.0/settings.ini
+
+    # rofi theme
+    echo "* {\n  background: #1e1e2e;\n  foreground: #cdd6f4;\n}" > /home/$USERNAME/.config/rofi/config.rasi
+    '
+
+    mkdir -p /etc/lightdm/lightdm.conf.d
+    echo -e "[Seat:*]\ngreeter-session=lightdm-gtk-greeter" > /etc/lightdm/lightdm.conf.d/20-greeter.conf
+    systemctl enable lightdm
+
+
+# yay + AUR + Flatpak (общие для обоих окружений)
 runuser -u $USERNAME -- bash -c '
 cd /home/$USERNAME
 git clone https://aur.archlinux.org/yay.git
 cd yay
 makepkg -si --noconfirm
+yay -S --noconfirm visual-studio-code-bin discord
 '
-
-runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
 
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
 
 systemctl enable NetworkManager
-systemctl enable gdm
 EOF
 
     chmod +x "$script_path"
 }
 
+
 run_chroot_script() {
+    echo "DESKTOP_ENV=$DESKTOP_ENV" > /mnt/root/desktop_env.conf
+    echo "source /root/desktop_env.conf" >> /mnt/root/chroot_script.sh
     printf "[+] Выполнение конфигурации в chroot...\n"
     arch-chroot /mnt /root/chroot_script.sh
 }
@@ -229,4 +323,3 @@ cleanup_and_reboot() {
 }
 
 main "$@"
-
