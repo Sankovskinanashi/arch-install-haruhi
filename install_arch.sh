@@ -203,11 +203,12 @@ pacman -Syu --noconfirm
 if [[ "$DESKTOP_ENV" == "gnome" ]]; then
     pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam lutris wine dkms libva-nvidia-driver nvidia-dkms xorg-server xorg-xinit
     systemctl enable gdm
-fi  # Закрываем блок if для gnome
 
 elif [[ "$DESKTOP_ENV" == "bspwm" ]]; then
     # Настройка минимального окружения и кастомизации
     pacman -S --noconfirm xorg-server xorg-xinit bspwm sxhkd picom feh rofi alacritty polybar lxappearance ttf-dejavu ttf-liberation ttf-ubuntu-font-family noto-fonts papirus-icon-theme lightdm lightdm-gtk-greeter networkmanager wireguard-tools steam lutris wine dkms libva-nvidia-driver nvidia-dkms
+    systemctl enable lightdm
+fi
 
     runuser -u $USERNAME -- bash -c '
     mkdir -p /home/$USERNAME/.config/{bspwm,sxhkd,polybar,rofi}
