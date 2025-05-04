@@ -220,55 +220,232 @@ elif [[ "$DESKTOP_ENV" == "hyprland" ]]; then
         qt5-wayland qt6-wayland \
         grim slurp wl-clipboard brightnessctl \
         steam lutris wine \
-        libva-nvidia-driver nvidia-dkms flatpak
+        libva-nvidia-driver nvidia-dkms flatpak  wl-clipboard cliphist thunar firefox \
+xdg-desktop-portal-hyprland qt5ct qt6ct hyprpaper ntfs-3g
     systemctl enable lightdm
 fi
 
-runuser -u $USERNAME -- bash -c '
-mkdir -p /home/$USERNAME/.config/{hypr,waybar,rofi}
-mkdir -p /home/$USERNAME/.fonts
+#!/bin/bash
 
-# hyprland config
-cat > /home/$USERNAME/.config/hypr/hyprland.conf << HCONF
+# Монтируем Windows-раздел /dev/sda3, если он не смонтирован
+if ! mountpoint -q /mnt/windows; then
+    echo "→ Монтирую Windows-раздел /dev/sda3 в /mnt/windows..."
+    sudo mkdir -p /mnt/windows
+    sudo mount -t ntfs3 /dev/sda3 /mnt/windows || {
+        echo "❌ Не удалось смонтировать /dev/sda3. Убедись, что раздел существует и не занят."
+        exit 1
+    }
+fi
+
+# Проверяем, существует ли изображение
+if [ ! -f "/mnt/windows/Users/Kyon/Pictures/GCmG7WYbgAAP1RX.jpg" ]; then
+    echo "❌ Обои не найдены: /mnt/windows/Users/Kyon/Pictures/GCmG7WYbgAAP1RX.jpg"
+    exit 1
+fi
+
+# Копируем обои в домашнюю директорию пользователя
+cp "/mnt/windows/Users/Kyon/Pictures/GCmG7WYbgAAP1RX.jpg" "/home/$USERNAME/.config/hypr/wallpapers/wallpaper.jpg"
+chown "$USERNAME:$USERNAME" "/home/$USERNAME/.config/hypr/wallpapers/wallpaper.jpg"
+
+runuser -u "$USERNAME" -- bash -c '
+# Папки конфигураций
+mkdir -p /home/$USER/.config/{hypr,waybar,rofi,hypr/wallpapers,gtk-3.0}
+mkdir -p /home/$USER/.fonts
+
+# Hyprland конфиг
+cat > /home/$USER/.config/hypr/hyprland.conf <<EOF
+# ----------------------
+# Monitor
+# ----------------------
 monitor=,preferred,auto,1
-exec-once = waybar &
-exec-once = rofi -show drun &
-exec-once = dunst &
-exec-once = foot &
+
+# ----------------------
+# Input
+# ----------------------
 input {
-  kb_layout=ru
-  follow_mouse=1
+    kb_layout = us,ru
+    kb_variant =
+    kb_options = grp:alt_shift_toggle
+    follow_mouse = 1
+
+    touchpad {
+        natural_scroll = yes
+    }
 }
+
+# ----------------------
+# General settings
+# ----------------------
 general {
-  gaps_in=5
-  gaps_out=10
-  border_size=2
-  col.active_border=rgba(33ccffee)
-  col.inactive_border=rgba(595959aa)
+    gaps_in = 5
+    gaps_out = 10
+    border_size = 2
+    col.active_border = rgba(33ccffee)
+    col.inactive_border = rgba(222222aa)
+    layout = dwindle
 }
-HCONF
+
+# ----------------------
+# Decoration
+# ----------------------
+decoration {
+    rounding = 10
+    blur = yes
+    blur_size = 5
+    blur_passes = 1
+    drop_shadow = yes
+    shadow_range = 4
+    shadow_render_power = 3
+}
+
+# ----------------------
+# Autostart applications
+# ----------------------
+exec-once = waybar
+exec-once = foot
+exec-once = firefox
+exec-once = thunar
+exec-once = wl-paste --watch cliphist store &
+exec-once = hyprpaper &
+
+# ----------------------
+# Environment for themes, cursor, etc.
+# ----------------------
+env = XCURSOR_THEME,Bibata-Modern-Ice
+env = XCURSOR_SIZE,24
+env = GTK_THEME,Adwaita-dark
+env = QT_QPA_PLATFORMTHEME,qt5ct
+
+# ----------------------
+# Window Rules
+# ----------------------
+windowrule = float, ^(pavucontrol)$
+windowrule = float, ^(Gimp|gimp-2.10)$
+windowrule = workspace 2, ^(firefox)$
+
+# ----------------------
+# Keybindings
+# ----------------------
+\$mod = SUPER
+
+bind = \$mod, RETURN, exec, foot
+bind = \$mod, Q, killactive,
+bind = \$mod, M, exit,
+bind = \$mod, V, togglefloating,
+bind = \$mod, F, fullscreen
+
+bind = \$mod, H, movefocus, l
+bind = \$mod, L, movefocus, r
+bind = \$mod, K, movefocus, u
+bind = \$mod, J, movefocus, d
+
+bind = \$mod, 1, workspace, 1
+bind = \$mod, 2, workspace, 2
+bind = \$mod, 3, workspace, 3
+bind = \$mod, 4, workspace, 4
+bind = \$mod, 5, workspace, 5
+EOF
+
+# hyprpaper config
+cat > /home/$USER/.config/hypr/hyprpaper.conf <<EOF
+preload = /home/$USER/.config/hypr/wallpapers/wallpaper.jpg
+wallpaper = ,/home/$USER/.config/hypr/wallpapers/wallpaper.jpg
+EOF
 
 # waybar config
-cat > /home/$USERNAME/.config/waybar/config << WAYBAR
+cat > /home/$USER/.config/waybar/config <<EOF
 {
   "layer": "top",
   "position": "top",
-  "modules-left": ["clock"],
-  "modules-right": ["network", "pulseaudio"]
-}
-WAYBAR
+  "modules-left": ["workspaces"],
+  "modules-center": ["clock"],
+  "modules-right": ["language", "pulseaudio", "network", "battery"],
 
-# GTK тема и иконки
-echo -e "[Settings]\ngtk-theme-name=Adwaita-dark\nicon-theme-name=Papirus" > /home/$USERNAME/.config/gtk-3.0/settings.ini
+  "clock": {
+    "format": " {:%H:%M  %d.%m}"
+  },
+  "language": {
+    "format": "{}",
+    "format-en": "EN",
+    "format-ru": "RU"
+  },
+  "pulseaudio": {
+    "format": " {volume}%"
+  },
+  "network": {
+    "format-wifi": " {essid}",
+    "format-ethernet": " {ifname}",
+    "format-disconnected": " Disconnected"
+  },
+  "battery": {
+    "format": "{capacity}% {icon}",
+    "format-icons": ["", "", "", "", ""]
+  }
+}
+EOF
+
+# waybar style
+cat > /home/$USER/.config/waybar/style.css <<EOF
+* {
+    font-family: JetBrainsMono Nerd Font, monospace;
+    font-size: 13px;
+    border: none;
+    border-radius: 0;
+    color: #ffffff;
+}
+
+window#waybar {
+    background: linear-gradient(90deg, rgba(25,0,64,0.9), rgba(80,0,120,0.85), rgba(0,0,64,0.8));
+    border-bottom: 2px solid #9b5de5;
+}
+
+#workspaces button {
+    padding: 0 5px;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+}
+
+#workspaces button.focused {
+    border-bottom: 2px solid #f15bb5;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+#clock, #pulseaudio, #network, #cpu, #memory, #battery, #language {
+    padding: 0 10px;
+}
+
+#language {
+    color: #ffee93;
+}
+EOF
+
+# GTK theme
+cat > /home/$USER/.config/gtk-3.0/settings.ini <<EOF
+[Settings]
+gtk-theme-name=Adwaita-dark
+icon-theme-name=Papirus
+EOF
 
 # rofi config
-echo "* {\n  background: #1e1e2e;\n  foreground: #cdd6f4;\n}" > /home/$USERNAME/.config/rofi/config.rasi
+cat > /home/$USER/.config/rofi/config.rasi <<EOF
+* {
+  background: #1e1e2e;
+  foreground: #cdd6f4;
+  border-color: #9b5de5;
+}
+EOF
+
+# Копируем обои (предполагается, что заранее положили wallpaper.jpg)
+# cp /путь/к/твоим/обоям.jpg /home/$USER/.config/hypr/wallpapers/wallpaper.jpg
+
+chown -R $USER:$USER /home/$USER/.config
 '
 
+# LightDM (опционально)
+mkdir -p /etc/lightdm/lightdm.conf.d
+echo -e "[Seat:*]\ngreeter-session=lightdm-gtk-greeter" > /etc/lightdm/lightdm.conf.d/20-greeter.conf
+systemctl enable lightdm
 
-    mkdir -p /etc/lightdm/lightdm.conf.d
-    echo -e "[Seat:*]\ngreeter-session=lightdm-gtk-greeter" > /etc/lightdm/lightdm.conf.d/20-greeter.conf
-    systemctl enable lightdm
 
 
 # yay + AUR + Flatpak (общие для обоих окружений)
