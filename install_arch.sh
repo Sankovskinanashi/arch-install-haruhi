@@ -34,14 +34,15 @@ main() {
 choose_desktop_environment() {
     printf "\n[?] Выберите окружение рабочего стола:\n"
     printf "  [1] GNOME\n"
-    printf "  [2] bspwm (лёгкое, тайлинговое)\n"
+    printf "  [2] Hyprland (Wayland, современное, тайлинговое)\n"
     read -rp "Выбор: " choice
     case "$choice" in
         1) DESKTOP_ENV="gnome" ;;
-        2) DESKTOP_ENV="bspwm" ;;
+        2) DESKTOP_ENV="hyprland" ;;
         *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
     esac
 }
+
 
 
 detect_disks() {
@@ -204,78 +205,66 @@ if [[ "$DESKTOP_ENV" == "gnome" ]]; then
     pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam lutris wine dkms libva-nvidia-driver nvidia-dkms xorg-server xorg-xinit flatpak
     systemctl enable gdm
 
-elif [[ "$DESKTOP_ENV" == "bspwm" ]]; then
-    # Настройка минимального окружения и кастомизации
-    pacman -S --noconfirm xorg-server xorg-xinit bspwm sxhkd picom feh rofi alacritty polybar lxappearance ttf-dejavu ttf-liberation ttf-ubuntu-font-family noto-fonts papirus-icon-theme lightdm lightdm-gtk-greeter networkmanager wireguard-tools steam lutris wine dkms libva-nvidia-driver nvidia-dkms flatpak
+elif [[ "$DESKTOP_ENV" == "hyprland" ]]; then
+    pacman -S --noconfirm \
+        xorg-xwayland \
+        wlroots \
+        hyprland \
+        waybar \
+        foot \
+        rofi-lbonn-wayland \
+        dunst \
+        pipewire pipewire-alsa pipewire-pulse wireplumber \
+        networkmanager wireguard-tools \
+        lightdm lightdm-gtk-greeter \
+        qt5-wayland qt6-wayland \
+        grim slurp wl-clipboard brightnessctl \
+        steam lutris wine \
+        libva-nvidia-driver nvidia-dkms flatpak
     systemctl enable lightdm
 fi
 
-    runuser -u $USERNAME -- bash -c '
-    mkdir -p /home/$USERNAME/.config/{bspwm,sxhkd,polybar,rofi}
-    mkdir -p /home/$USERNAME/.fonts
+runuser -u $USERNAME -- bash -c '
+mkdir -p /home/$USERNAME/.config/{hypr,waybar,rofi}
+mkdir -p /home/$USERNAME/.fonts
 
-    # bspwmrc
-    cat > /home/$USERNAME/.config/bspwm/bspwmrc << BSPWMRC
-#!/bin/sh
-sxhkd &
-bspc monitor -d I II III IV V
-picom &
-feh --bg-scale /usr/share/backgrounds/archlinux/arch-wallpaper.jpg &
-~/.config/polybar/launch.sh &
-BSPWMRC
+# hyprland config
+cat > /home/$USERNAME/.config/hypr/hyprland.conf << HCONF
+monitor=,preferred,auto,1
+exec-once = waybar &
+exec-once = rofi -show drun &
+exec-once = dunst &
+exec-once = foot &
+input {
+  kb_layout=ru
+  follow_mouse=1
+}
+general {
+  gaps_in=5
+  gaps_out=10
+  border_size=2
+  col.active_border=rgba(33ccffee)
+  col.inactive_border=rgba(595959aa)
+}
+HCONF
 
-    chmod +x /home/$USERNAME/.config/bspwm/bspwmrc
+# waybar config
+cat > /home/$USERNAME/.config/waybar/config << WAYBAR
+{
+  "layer": "top",
+  "position": "top",
+  "modules-left": ["clock"],
+  "modules-right": ["network", "pulseaudio"]
+}
+WAYBAR
 
-    # sxhkdrc
-    cat > /home/$USERNAME/.config/sxhkd/sxhkdrc << SXHKDRC
-super + Return
-    alacritty
+# GTK тема и иконки
+echo -e "[Settings]\ngtk-theme-name=Adwaita-dark\nicon-theme-name=Papirus" > /home/$USERNAME/.config/gtk-3.0/settings.ini
 
-super + q
-    bspc node -c
+# rofi config
+echo "* {\n  background: #1e1e2e;\n  foreground: #cdd6f4;\n}" > /home/$USERNAME/.config/rofi/config.rasi
+'
 
-super + {h,j,k,l}
-    bspc node -f {west,south,north,east}
-SXHKDRC
-
-    # polybar config
-    cat > /home/$USERNAME/.config/polybar/config.ini << POLYBAR
-[bar/main]
-width = 100%
-height = 28
-modules-left = workspaces
-modules-right = date time
-font-0 = monospace-10
-
-[module/workspaces]
-type = internal/bspwm
-
-[module/date]
-type = internal/date
-date = %Y-%m-%d
-interval = 60
-
-[module/time]
-type = internal/date
-time = %H:%M:%S
-interval = 1
-POLYBAR
-
-    # polybar launch script
-    cat > /home/$USERNAME/.config/polybar/launch.sh << 'LAUNCH'
-#!/bin/bash
-killall -q polybar
-while pgrep -u \$UID -x polybar >/dev/null; do sleep 1; done
-polybar main &
-LAUNCH
-    chmod +x /home/$USERNAME/.config/polybar/launch.sh
-
-    # GTK тема и иконки
-    echo -e "[Settings]\ngtk-theme-name=Adwaita-dark\nicon-theme-name=Papirus" > /home/$USERNAME/.config/gtk-3.0/settings.ini
-
-    # rofi theme
-    echo "* {\n  background: #1e1e2e;\n  foreground: #cdd6f4;\n}" > /home/$USERNAME/.config/rofi/config.rasi
-    '
 
     mkdir -p /etc/lightdm/lightdm.conf.d
     echo -e "[Seat:*]\ngreeter-session=lightdm-gtk-greeter" > /etc/lightdm/lightdm.conf.d/20-greeter.conf
