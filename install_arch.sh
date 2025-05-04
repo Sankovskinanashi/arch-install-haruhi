@@ -212,7 +212,7 @@ elif [[ "$DESKTOP_ENV" == "hyprland" ]]; then
         hyprland \
         waybar \
         foot \
-        rofi-lbonn-wayland \
+        wofi\
         dunst \
         pipewire pipewire-alsa pipewire-pulse wireplumber \
         networkmanager wireguard-tools \
