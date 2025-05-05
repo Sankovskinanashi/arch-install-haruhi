@@ -204,7 +204,15 @@ pacman -Syu --noconfirm
 if [[ "$DESKTOP_ENV" == "gnome" ]]; then
     pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam lutris wine dkms libva-nvidia-driver nvidia-dkms xorg-server xorg-xinit flatpak
     systemctl enable gdm
-
+runuser -u $USERNAME -- bash -c 
+cd /home/$USERNAME
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si --noconfirm
+yay -S --noconfirm visual-studio-code-bin discord hyprpaper
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
+systemctl enable NetworkManager
 elif [[ "$DESKTOP_ENV" == "hyprland" ]]; then
     pacman -S --noconfirm \
         xorg-xwayland \
@@ -223,8 +231,16 @@ elif [[ "$DESKTOP_ENV" == "hyprland" ]]; then
         libva-nvidia-driver nvidia-dkms flatpak  wl-clipboard cliphist thunar firefox \
 xdg-desktop-portal-hyprland qt5ct qt6ct hyprpaper ntfs-3g
     systemctl enable lightdm
+runuser -u $USERNAME -- bash -c 
+cd /home/$USERNAME
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si --noconfirm
+yay -S --noconfirm visual-studio-code-bin discord hyprpaper
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
+systemctl enable NetworkManager
 fi
-
 #!/bin/bash
 
 # Монтируем Windows-раздел /dev/sda3, если он не смонтирован
@@ -251,6 +267,7 @@ runuser -u "$USERNAME" -- bash -c '
 # Папки конфигураций
 mkdir -p /home/$USER/.config/{hypr,waybar,rofi,hypr/wallpapers,gtk-3.0}
 mkdir -p /home/$USER/.fonts
+touch /home/kyon/.config/hypr/hyprpaper.conf
 
 # Hyprland конфиг
 cat > /home/$USER/.config/hypr/hyprland.conf <<EOF
@@ -447,21 +464,6 @@ echo -e "[Seat:*]\ngreeter-session=lightdm-gtk-greeter" > /etc/lightdm/lightdm.c
 systemctl enable lightdm
 '
 
-
-# yay + AUR + Flatpak (общие для обоих окружений)
-runuser -u $USERNAME -- bash -c 
-cd /home/$USERNAME
-git clone https://aur.archlinux.org/yay.git
-cd yay
-makepkg -si --noconfirm
-yay -S --noconfirm visual-studio-code-bin discord
-
-
-flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
-
-systemctl enable NetworkManager
-EOF
 
     chmod +x "$script_path"
 }
