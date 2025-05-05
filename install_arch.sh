@@ -445,17 +445,17 @@ chown -R $USER:$USER /home/$USER/.config
 mkdir -p /etc/lightdm/lightdm.conf.d
 echo -e "[Seat:*]\ngreeter-session=lightdm-gtk-greeter" > /etc/lightdm/lightdm.conf.d/20-greeter.conf
 systemctl enable lightdm
-
+'
 
 
 # yay + AUR + Flatpak (общие для обоих окружений)
-runuser -u $USERNAME -- bash -c '
+runuser -u $USERNAME -- bash -c 
 cd /home/$USERNAME
 git clone https://aur.archlinux.org/yay.git
 cd yay
 makepkg -si --noconfirm
 yay -S --noconfirm visual-studio-code-bin discord
-'
+
 
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
