@@ -202,10 +202,11 @@ pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumbe
 
 runuser -u $USERNAME -- bash -c '
 cd /home/$USERNAME
-git clone https://aur.archlinux.org/yay.git
-cd yay
+git clone https://aur.archlinux.org/yay-bin.git
+cd yay-bin
 makepkg -si --noconfirm
 '
+
 
 runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
 
