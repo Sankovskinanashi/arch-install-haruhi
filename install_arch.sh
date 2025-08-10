@@ -16,6 +16,7 @@ TIMEZONE="Europe/Moscow"
 EDITOR="nano"
 
 main() {
+    check_internet
     detect_disks
     select_disk
     list_partitions
@@ -29,6 +30,18 @@ main() {
     install_grub
     cleanup_and_reboot
 }
+
+check_internet() {
+    printf "[*] Проверка интернет-соединения...\n"
+    if ! ping -c 1 -W 3 archlinux.org &>/dev/null; then
+        printf "[!] Нет доступа к интернету. Настройте подключение и перезапустите установку.\n" >&2
+        printf "[i] Подключение Wi-Fi: iwctl\n" >&2
+        printf "[i] Подключение Ethernet: systemctl start dhcpcd или ip link set <интерфейс> up\n" >&2
+        exit 1
+    fi
+    printf "[+] Интернет доступен.\n"
+}
+
 
 detect_disks() {
     printf "[*] Доступные диски:\n"
