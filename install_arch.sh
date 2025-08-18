@@ -230,7 +230,7 @@ windowrulev2 = noborder, class:^(cs2)$
 windowrulev2 = fullscreen, class:^(cs2)$
 HYPRCONF
 )
-
+}
 # Выбор диска
 select_disk() {
     printf "\n[*] Доступные диски:\n"
@@ -614,3 +614,4 @@ main() {
 }
 
 main "$@"
+
