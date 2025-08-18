@@ -72,7 +72,7 @@ select_desktop_environment() {
 generate_hyprland_config() {
     HYPRLAND_CONFIG=$(cat <<'HYPRCONF'
 # ~/.config/hypr/hyprland.conf
-# Современный конфиг для Hyprland
+# Современный конфиг для Hyprland (актуальный для версии 0.40.0+)
 
 monitor=,highrr,auto,1.25
 
@@ -230,7 +230,6 @@ windowrulev2 = noborder, class:^(cs2)$
 windowrulev2 = fullscreen, class:^(cs2)$
 HYPRCONF
 )
-}
 
 # Выбор диска
 select_disk() {
@@ -553,13 +552,13 @@ systemctl enable sshd
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 grub-mkconfig -o /boot/grub/grub.cfg
 
-# Автозапуск Wayland для NVIDIA
-if [[ "$INSTALL_NVIDIA_DRIVERS" == true ]]; then
-    echo "Добавление Wayland для NVIDIA..."
+# Автозапуск Wayland для NVIDIA (только для GNOME) <- ВСТАВЬТЕ ЗДЕСЬ
+if [[ "$INSTALL_NVIDIA_DRIVERS" == true && "$DE_CHOICE" == "gnome" ]]; then
+    echo "Добавление Wayland для NVIDIA в GDM..."
     sed -i 's/^#WaylandEnable=false/WaylandEnable=true/' /etc/gdm/custom.conf
 fi
 
-# Настройка игрового режима
+# Настройка игрового режима для Hyprland <- После этого блока
 if [[ "$DE_CHOICE" == "hyprland" ]]; then
     echo "Настройка игрового режима..."
     usermod -a -G gamemode $USERNAME
