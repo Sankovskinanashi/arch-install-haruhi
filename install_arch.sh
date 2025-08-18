@@ -478,7 +478,7 @@ if [[ "$DE_CHOICE" == "gnome" ]]; then
     
 elif [[ "$DE_CHOICE" == "hyprland" ]]; then
     # Установка Hyprland и компонентов
-    pacman -S --noconfirm hyprland waybar swaync swaylock-effects sddm wofi cliphist swappy grim slurp wl-clipboard xdg-desktop-portal-hyprland $gpu_drivers
+    pacman -S --noconfirm hyprland waybar swaync sddm wofi cliphist swappy grim slurp wl-clipboard xdg-desktop-portal-hyprland $gpu_drivers
     pacman -S --noconfirm ttf-font-awesome noto-fonts noto-fonts-emoji ttf-jetbrains-mono
     
     # Дополнительные пакеты для игр
@@ -511,9 +511,6 @@ SCR
     chown $USERNAME:$USERNAME /home/$USERNAME/Pictures/wallpaper.jpg
 fi
 
-# Общие приложения
-pacman -S --noconfirm firefox libreoffice-fresh gimp vlc
-
 # Установка AUR helper
 runuser -u $USERNAME -- bash -c '
 cd /home/$USERNAME
@@ -522,8 +519,15 @@ cd yay-bin
 makepkg -si --noconfirm
 '
 
-# AUR приложения
-runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
+# Установка AUR пакетов
+if [[ "$DE_CHOICE" == "hyprland" ]]; then
+    runuser -u $USERNAME -- yay -S --noconfirm swaylock-effects visual-studio-code-bin discord
+elif [[ "$DE_CHOICE" == "gnome" ]]; then
+    runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
+fi
+
+# Общие приложения
+pacman -S --noconfirm firefox libreoffice-fresh gimp vlc
 
 # Flatpak
 pacman -S --noconfirm flatpak
