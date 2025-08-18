@@ -269,6 +269,36 @@ manage_partitions() {
         esac
     done
 }
+# ДОБАВЛЕНА НОВАЯ ФУНКЦИЯ
+select_existing_partitions() {
+    printf "\n[?] Вы будете использовать существующие разделы. Убедитесь, что:\n"
+    printf "  - Имеется раздел EFI (FAT32) размером не менее 100M\n"
+    printf "  - Имеется корневой раздел для Arch Linux\n"
+    
+    read -rp "[?] Укажите EFI раздел (например /dev/sda1): " EFI_PART
+    read -rp "[?] Укажите ROOT раздел (например /dev/sda2): " ROOT_PART
+
+    # Проверка существования разделов
+    if [[ ! -b "$EFI_PART" ]]; then
+        printf "[!] EFI раздел не существует: %s\n" "$EFI_PART" >&2
+        return 1
+    fi
+    if [[ ! -b "$ROOT_PART" ]]; then
+        printf "[!] ROOT раздел не существует: %s\n" "$ROOT_PART" >&2
+        return 1
+    fi
+
+    # Подтверждение форматирования
+    printf "\n[!] ВНИМАНИЕ: Эти разделы будут отформатированы:\n"
+    printf "  EFI: %s -> FAT32\n" "$EFI_PART"
+    printf "  ROOT: %s -> %s\n" "$ROOT_PART" "$FS_TYPE"
+    read -rp "Продолжить? (yes/[no]): " confirm
+    [[ "$confirm" != "yes" ]] && return 1
+
+    choose_filesystem "$ROOT_PART"
+    format_partition "$EFI_PART" fat32 "$EFI_LABEL"
+    format_partition "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
+}
 
 # Ручное разбиение
 manual_partitioning() {
