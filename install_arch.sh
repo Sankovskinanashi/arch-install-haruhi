@@ -465,6 +465,17 @@ passwd $USERNAME
 # Настройка sudo
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
+# Активация multilib для Steam и 32-битных библиотек
+echo "Включение multilib репозитория..."
+sed -i '/\[multilib\]/,/Include/s/^#//' /etc/pacman.conf
+pacman -Sy
+
+# Проверка, что multilib активирован
+if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
+    echo "[!] ОШИБКА: Не удалось активировать multilib!" >&2
+    exit 1
+fi
+
 # Обновление системы
 pacman -Syu --noconfirm
 
