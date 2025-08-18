@@ -13,131 +13,321 @@ USERNAME="kyon"
 LOCALE="ru_RU.UTF-8"
 KEYMAP="ru"
 TIMEZONE="Europe/Moscow"
-EDITOR="nano"
+CPU_VENDOR=""
+GPU_VENDOR=""
+INSTALL_AMD_DRIVERS=false
+INSTALL_NVIDIA_DRIVERS=false
+DE_CHOICE=""
+HYPRLAND_CONFIG=""
 
-main() {
-    check_internet
-    detect_disks
-    select_disk
-    list_partitions
-    prompt_partition_action
-    mount_partitions
-    enable_ntp
-    install_base_system
-    generate_fstab
-    create_chroot_script
-    run_chroot_script
-    install_grub
-    cleanup_and_reboot
-}
-
+# Проверка наличия интернета
 check_internet() {
     printf "[*] Проверка интернет-соединения...\n"
     if ! ping -c 1 -W 3 archlinux.org &>/dev/null; then
         printf "[!] Нет доступа к интернету. Настройте подключение и перезапустите установку.\n" >&2
-        printf "[i] Подключение Wi-Fi: iwctl\n" >&2
-        printf "[i] Подключение Ethernet: systemctl start dhcpcd или ip link set <интерфейс> up\n" >&2
+        printf "[i] Подключение Wi-Fi:\n"
+        printf "    1. iwctl\n"
+        printf "    2. station wlan0 scan\n"
+        printf "    3. station wlan0 get-networks\n"
+        printf "    4. station wlan0 connect <SSID>\n"
+        printf "[i] Подключение Ethernet: dhcpcd\n" >&2
         exit 1
     fi
     printf "[+] Интернет доступен.\n"
 }
 
+# Определение железа
+detect_hardware() {
+    CPU_VENDOR=$(lscpu | grep -i "vendor id" | awk '{print $3}')
+    GPU_VENDOR=$(lspci | grep -i "vga\|3d\|display" | awk -F: '{print $3}' | tr '[:upper:]' '[:lower:]')
+    
+    [[ "$GPU_VENDOR" == *"nvidia"* ]] && INSTALL_NVIDIA_DRIVERS=true
+    [[ "$GPU_VENDOR" == *"amd"* || "$GPU_VENDOR" == *"radeon"* ]] && INSTALL_AMD_DRIVERS=true
+    
+    printf "[*] Определено оборудование:\n"
+    printf "    CPU: %s\n" "$CPU_VENDOR"
+    printf "    GPU: %s\n" "$GPU_VENDOR"
+    printf "    Установка драйверов NVIDIA: %s\n" "$INSTALL_NVIDIA_DRIVERS"
+    printf "    Установка драйверов AMD: %s\n" "$INSTALL_AMD_DRIVERS"
+}
 
-detect_disks() {
-    printf "[*] Доступные диски:\n"
-    lsblk -dno NAME,SIZE,MODEL | while read -r line; do
+# Выбор окружения рабочего стола
+select_desktop_environment() {
+    printf "\n[?] Выберите окружение рабочего стола:\n"
+    printf "  [1] GNOME (классическое, с поддержкой Wayland)\n"
+    printf "  [2] Hyprland (современный Wayland compositor)\n"
+    
+    while true; do
+        read -rp "Ваш выбор [1/2]: " de_choice
+        case "$de_choice" in
+            1) DE_CHOICE="gnome"; break ;;
+            2) DE_CHOICE="hyprland"; break ;;
+            *) printf "[!] Неверный выбор\n" >&2 ;;
+        esac
+    done
+    printf "[+] Выбрано: %s\n" "$DE_CHOICE"
+}
+
+# Генерация конфига для Hyprland
+generate_hyprland_config() {
+    HYPRLAND_CONFIG=$(cat <<'HYPRCONF'
+# ~/.config/hypr/hyprland.conf
+# Современный конфиг для Hyprland
+
+monitor=,highrr,auto,1.25
+
+input {
+    kb_layout = us,ru
+    kb_options = grp:alt_shift_toggle,caps:escape
+    repeat_rate = 35
+    repeat_delay = 250
+    touchpad {
+        natural_scroll = true
+        tap-to-click = true
+        disable_while_typing = true
+    }
+}
+
+general {
+    gaps_in = 6
+    gaps_out = 14
+    border_size = 2
+    col.active_border = rgb(89b4fa) rgb(f5c2e7) 45deg
+    col.inactive_border = rgba(585b70aa)
+    layout = dwindle
+    resize_on_border = true
+    allow_tearing = false
+}
+
+dwindle {
+    pseudotile = true
+    preserve_split = true
+}
+
+misc {
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
+    vfr = true
+    vrr = 1
+    enable_swallow = true
+    swallow_regex = ^(kitty|Alacritty)$
+    focus_on_activate = true
+}
+
+decoration {
+    rounding = 12
+    active_opacity = 0.94
+    inactive_opacity = 0.84
+    fullscreen_opacity = 1.0
+    
+    blur {
+        enabled = true
+        size = 6
+        passes = 3
+        new_optimizations = true
+        xray = true
+        ignore_opacity = true
+    }
+    
+    drop_shadow = yes
+    shadow_range = 15
+    shadow_render_power = 3
+    col.shadow = rgba(1a1a1aee)
+    dim_inactive = true
+    dim_strength = 0.1
+}
+
+animations {
+    enabled = yes
+    bezier = overshot, 0.13, 0.99, 0.29, 1.1
+    bezier = smoothOut, 0.36, 0, 0.66, -0.56
+    bezier = smoothIn, 0.25, 1, 0.5, 1
+    
+    animation = windows, 1, 5, overshot, slide
+    animation = windowsOut, 1, 4, smoothOut, slide
+    animation = border, 1, 10, default
+    animation = fade, 1, 8, default
+    animation = workspaces, 1, 6, smoothIn, slidevert
+}
+
+# Автозапуск
+exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec-once = systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec-once = /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+exec-once = swww init && swww img ~/Pictures/wallpaper.jpg
+exec-once = waybar
+exec-once = swaync
+exec-once = nm-applet --indicator
+exec-once = blueman-applet
+exec-once = wl-paste --watch cliphist store
+exec-once = fcitx5 -d
+
+# Горячие клавиши
+$mainMod = SUPER
+$scripts = ~/.config/hypr/scripts
+
+bind = $mainMod, RETURN, exec, kitty
+bind = $mainMod, B, exec, firefox
+bind = $mainMod, E, exec, nautilus
+bind = $mainMod, Q, killactive,
+bind = $mainMod, F, fullscreen,
+bind = $mainMod, Space, togglefloating,
+bind = $mainMod, R, exec, wofi --show drun
+bind = $mainMod, P, exec, $scripts/screenshot.sh
+bind = $mainMod, L, exec, swaylock -S
+
+# Движение фокуса
+bind = $mainMod, left, movefocus, l
+bind = $mainMod, right, movefocus, r
+bind = $mainMod, up, movefocus, u
+bind = $mainMod, down, movefocus, d
+
+# Рабочие пространства
+bind = $mainMod, 1, workspace, 1
+bind = $mainMod, 2, workspace, 2
+bind = $mainMod, 3, workspace, 3
+bind = $mainMod, 4, workspace, 4
+bind = $mainMod, 5, workspace, 5
+bind = $mainMod, 6, workspace, 6
+bind = $mainMod, 7, workspace, 7
+bind = $mainMod, 8, workspace, 8
+bind = $mainMod, 9, workspace, 9
+bind = $mainMod, 0, workspace, 10
+
+# Перенос окон
+bind = $mainMod SHIFT, 1, movetoworkspace, 1
+bind = $mainMod SHIFT, 2, movetoworkspace, 2
+bind = $mainMod SHIFT, 3, movetoworkspace, 3
+bind = $mainMod SHIFT, 4, movetoworkspace, 4
+bind = $mainMod SHIFT, 5, movetoworkspace, 5
+bind = $mainMod SHIFT, 6, movetoworkspace, 6
+bind = $mainMod SHIFT, 7, movetoworkspace, 7
+bind = $mainMod SHIFT, 8, movetoworkspace, 8
+bind = $mainMod SHIFT, 9, movetoworkspace, 9
+bind = $mainMod SHIFT, 0, movetoworkspace, 10
+
+# Мультимедиа
+bind = , XF86AudioPlay, exec, playerctl play-pause
+bind = , XF86AudioNext, exec, playerctl next
+bind = , XF86AudioPrev, exec, playerctl previous
+bind = , XF86AudioRaiseVolume, exec, pamixer -i 5
+bind = , XF86AudioLowerVolume, exec, pamixer -d 5
+bind = , XF86AudioMute, exec, pamixer -t
+bind = , XF86MonBrightnessUp, exec, brightnessctl set 5%+
+bind = , XF86MonBrightnessDown, exec, brightnessctl set 5%-
+
+# Правила окон
+windowrule = float, ^(pavucontrol)$
+windowrule = float, ^(blueman-manager)$
+windowrule = float, ^(nm-connection-editor)$
+windowrule = float, ^(org.gnome.Calculator)$
+windowrule = center, ^(org.gnome.Calculator)$
+windowrule = size 800 600, ^(org.gnome.Calculator)$
+windowrulev2 = opacity 0.95 0.85, class:^(kitty)$
+windowrulev2 = noanim, class:^(cs2)$
+windowrulev2 = immediate, class:^(cs2)$
+windowrulev2 = noborder, class:^(cs2)$
+windowrulev2 = fullscreen, class:^(cs2)$
+HYPRCONF
+)
+}
+
+# Выбор диска
+select_disk() {
+    printf "\n[*] Доступные диски:\n"
+    lsblk -dno NAME,SIZE,MODEL -e 7,11 | while read -r line; do
         printf "  /dev/%s\n" "$line"
+    done
+    
+    while true; do
+        read -rp "[?] Укажите диск для установки (например /dev/sda): " DISK
+        if [[ ! -b "$DISK" ]]; then
+            printf "[!] Указанный диск не существует: %s\n" "$DISK" >&2
+        else
+            break
+        fi
     done
 }
 
-select_disk() {
-    read -rp "[?] Укажите диск для установки (например /dev/sda): " DISK
-    if [[ ! -b "$DISK" ]]; then
-        printf "[!] Указанный диск не существует: %s\n" "$DISK" >&2
-        return 1
-    fi
-}
-
-list_partitions() {
+# Управление разделами
+manage_partitions() {
     printf "\n[*] Существующие разделы на %s:\n" "$DISK"
     lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT "$DISK"
-}
-
-prompt_partition_action() {
+    
     printf "\n[?] Что вы хотите сделать с разделами?\n"
     printf "  [1] Использовать существующие\n"
     printf "  [2] Удалить все и создать заново\n"
-    read -rp "Выбор: " action
-    case "$action" in
-        1) select_existing_partitions ;;
-        2) wipe_and_create_partitions ;;
-        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
-    esac
+    printf "  [3] Ручное разбиение (cfdisk)\n"
+    
+    while true; do
+        read -rp "Выбор: " action
+        case "$action" in
+            1) select_existing_partitions; break ;;
+            2) wipe_and_create_partitions; break ;;
+            3) manual_partitioning; break ;;
+            *) printf "[!] Неверный выбор\n" >&2 ;;
+        esac
+    done
 }
 
-select_existing_partitions() {
+# Ручное разбиение
+manual_partitioning() {
+    printf "\n[!] Запуск cfdisk для ручного разбиения %s\n" "$DISK"
+    cfdisk "$DISK"
+    
+    printf "\n[*] Новые разделы:\n"
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT "$DISK"
+    
     read -rp "[?] Укажите EFI раздел (например /dev/sda1): " EFI_PART
     read -rp "[?] Укажите ROOT раздел (например /dev/sda2): " ROOT_PART
+    
     choose_filesystem "$ROOT_PART"
     format_partition "$EFI_PART" fat32 "$EFI_LABEL"
     format_partition "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
 }
 
-wipe_and_create_partitions() {
-    printf "[!] Все данные на %s будут удалены!\n" "$DISK"
-    read -rp "Продолжить? (yes/[no]): " confirm
-    [[ "$confirm" != "yes" ]] && return 1
-
-    wipefs -a "$DISK"
-    parted -s "$DISK" mklabel gpt
-
-    parted -s "$DISK" mkpart "$EFI_LABEL" fat32 1MiB "$BOOT_SIZE"
-    parted -s "$DISK" set 1 esp on
-    parted -s "$DISK" mkpart "$ROOT_LABEL" "$FS_TYPE" "$BOOT_SIZE" 100%
-
-    sync
-    sleep 1
-
-    EFI_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?1$" || true)
-    ROOT_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?2$" || true)
-
-    if [[ -z "$EFI_PART" || -z "$ROOT_PART" ]]; then
-        printf "[!] Не удалось обнаружить созданные разделы\n" >&2
-        return 1
-    fi
-
-    choose_filesystem "$ROOT_PART"
-    format_partition "$EFI_PART" fat32 "$EFI_LABEL"
-    format_partition "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
-}
-
+# Выбор файловой системы
 choose_filesystem() {
     local part="$1"
     printf "\n[?] Выберите файловую систему для %s:\n" "$part"
-    printf "  [1] ext4\n"
-    printf "  [2] btrfs\n"
-    read -rp "Выбор: " fs
-    case "$fs" in
-        1) FS_TYPE="ext4" ;;
-        2) FS_TYPE="btrfs" ;;
-        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
-    esac
+    printf "  [1] ext4 (рекомендуется)\n"
+    printf "  [2] btrfs (с поддержкой снапшотов)\n"
+    printf "  [3] xfs (высокая производительность)\n"
+    
+    while true; do
+        read -rp "Выбор: " fs
+        case "$fs" in
+            1) FS_TYPE="ext4"; break ;;
+            2) FS_TYPE="btrfs"; break ;;
+            3) FS_TYPE="xfs"; break ;;
+            *) printf "[!] Неверный выбор\n" >&2 ;;
+        esac
+    done
 }
 
+# Форматирование раздела
 format_partition() {
     local part="$1" fstype="$2" label="$3"
+    printf "\n[!] ВСЕ ДАННЫЕ НА %s БУДУТ УДАЛЕНЫ!\n" "$part"
+    read -rp "Продолжить форматирование? (yes/[no]): " confirm
+    [[ "$confirm" != "yes" ]] && return
+    
     case "$fstype" in
         fat32)
             printf "[+] Форматирование %s в FAT32...\n" "$part"
-            mkfs.fat -F32 "$part" || return 1
+            mkfs.fat -F32 -n "$label" "$part"
             ;;
         ext4)
             printf "[+] Форматирование %s в ext4...\n" "$part"
-            mkfs.ext4 -L "$label" "$part" || return 1
+            mkfs.ext4 -L "$label" "$part"
             ;;
         btrfs)
             printf "[+] Форматирование %s в Btrfs...\n" "$part"
-            mkfs.btrfs -f -L "$label" "$part" || return 1
+            mkfs.btrfs -f -L "$label" "$part"
+            ;;
+        xfs)
+            printf "[+] Форматирование %s в XFS...\n" "$part"
+            mkfs.xfs -f -L "$label" "$part"
             ;;
         *)
             printf "[!] Неизвестная ФС: %s\n" "$fstype" >&2
@@ -146,43 +336,87 @@ format_partition() {
     esac
 }
 
+# Монтирование разделов
 mount_partitions() {
-    printf "[+] Монтирование корневого раздела...\n"
+    printf "\n[+] Монтирование корневого раздела...\n"
     mount "$ROOT_PART" /mnt
+    
+    printf "[+] Создание EFI директории...\n"
     mkdir -p /mnt/boot/efi
+    
+    printf "[+] Монтирование EFI раздела...\n"
     mount "$EFI_PART" /mnt/boot/efi
+    
+    # Для btrfs создаем подтома
+    if [[ "$FS_TYPE" == "btrfs" ]]; then
+        printf "[+] Создание подтомов Btrfs...\n"
+        btrfs subvolume create /mnt/@
+        btrfs subvolume create /mnt/@home
+        btrfs subvolume create /mnt/@snapshots
+        umount /mnt
+        
+        printf "[+] Монтирование подтомов...\n"
+        mount -o compress=zstd,subvol=@ "$ROOT_PART" /mnt
+        mkdir -p /mnt/{home,.snapshots,boot/efi}
+        mount -o compress=zstd,subvol=@home "$ROOT_PART" /mnt/home
+        mount -o compress=zstd,subvol=@snapshots "$ROOT_PART" /mnt/.snapshots
+        mount "$EFI_PART" /mnt/boot/efi
+    fi
 }
 
-enable_ntp() {
-    printf "[+] Включение синхронизации времени...\n"
-    timedatectl set-ntp true
-}
-
+# Установка базовой системы
 install_base_system() {
-    printf "[+] Установка базовой системы...\n"
-    pacstrap /mnt base base-devel linux linux-firmware intel-ucode nano git grub efibootmgr networkmanager
+    local packages="base base-devel linux linux-firmware nano git grub efibootmgr networkmanager"
+    
+    # Добавляем микрокод
+    case "$CPU_VENDOR" in
+        GenuineIntel) packages+=" intel-ucode" ;;
+        AuthenticAMD) packages+=" amd-ucode" ;;
+    esac
+    
+    printf "\n[+] Установка базовой системы...\n"
+    pacstrap /mnt $packages
 }
 
+# Генерация fstab
 generate_fstab() {
-    printf "[+] Генерация fstab...\n"
+    printf "\n[+] Генерация fstab...\n"
     genfstab -U /mnt >> /mnt/etc/fstab
+    
+    # Для btrfs добавляем опции
+    if [[ "$FS_TYPE" == "btrfs" ]]; then
+        sed -i 's|subvol=/@ |subvol=/@,compress=zstd |' /mnt/etc/fstab
+        sed -i 's|subvol=/@home|subvol=/@home,compress=zstd|' /mnt/etc/fstab
+        sed -i 's|subvol=/@snapshots|subvol=/@snapshots,compress=zstd|' /mnt/etc/fstab
+    fi
 }
 
+# Скрипт для chroot
 create_chroot_script() {
     local script_path="/mnt/root/chroot_script.sh"
+    
+    # Определяем драйвера для установки
+    local gpu_drivers="mesa libva-mesa-driver"
+    [[ "$INSTALL_AMD_DRIVERS" == true ]] && gpu_drivers+=" vulkan-radeon libva-mesa-driver"
+    [[ "$INSTALL_NVIDIA_DRIVERS" == true ]] && gpu_drivers+=" nvidia nvidia-utils nvidia-settings"
+    
     cat > "$script_path" <<EOF
 #!/bin/bash
 set -euo pipefail
 
+# Настройка времени
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
 
+# Локализация
 sed -i 's/^#\\($LOCALE\\)/\\1/' /etc/locale.gen
 sed -i 's/^#\\(en_US.UTF-8\\)/\\1/' /etc/locale.gen
 locale-gen
 
 echo "LANG=$LOCALE" > /etc/locale.conf
 echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
+
+# Сетевые настройки
 echo "$HOSTNAME" > /etc/hostname
 cat > /etc/hosts << HOSTS
 127.0.0.1   localhost
@@ -190,16 +424,67 @@ cat > /etc/hosts << HOSTS
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 HOSTS
 
+# Пользователи
+echo "Установка пароля root:"
 passwd
+
 useradd -m -G wheel -s /bin/bash $USERNAME
+echo "Установка пароля для $USERNAME:"
 passwd $USERNAME
-grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
-$EDITOR /etc/pacman.conf
+# Настройка sudo
+sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
+# Обновление системы
 pacman -Syu --noconfirm
-pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber networkmanager wireguard-tools steam lutris wine
 
+# Установка окружения рабочего стола
+if [[ "$DE_CHOICE" == "gnome" ]]; then
+    # Установка GNOME
+    pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber xdg-user-dirs $gpu_drivers
+    systemctl enable gdm
+    systemctl enable NetworkManager
+    pacman -S --noconfirm firefox libreoffice-fresh gimp vlc steam lutris wine
+    
+elif [[ "$DE_CHOICE" == "hyprland" ]]; then
+    # Установка Hyprland и компонентов
+    pacman -S --noconfirm hyprland waybar swaync swaylock-effects sddm wofi cliphist swappy grim slurp wl-clipboard xdg-desktop-portal-hyprland $gpu_drivers
+    pacman -S --noconfirm ttf-font-awesome noto-fonts noto-fonts-emoji ttf-jetbrains-mono
+    
+    # Дополнительные пакеты для игр
+    pacman -S --noconfirm steam lutris wine gamemode lib32-gamemode
+    
+    # Настройка SDDM
+    systemctl enable sddm
+    systemctl enable NetworkManager
+    
+    # Создание конфига Hyprland
+    mkdir -p /home/$USERNAME/.config/hypr
+    cat > /home/$USERNAME/.config/hypr/hyprland.conf << 'HYPRCONF'
+$HYPRLAND_CONFIG
+HYPRCONF
+    
+    # Создание скрипта для скриншотов
+    mkdir -p /home/$USERNAME/.config/hypr/scripts
+    cat > /home/$USERNAME/.config/hypr/scripts/screenshot.sh << 'SCR'
+#!/bin/sh
+grim -g "\$(slurp)" - | swappy -f -
+SCR
+    chmod +x /home/$USERNAME/.config/hypr/scripts/screenshot.sh
+    
+    # Установка обоев
+    mkdir -p /home/$USERNAME/Pictures
+    curl -L -o /home/$USERNAME/Pictures/wallpaper.jpg https://raw.githubusercontent.com/mateosss/arch-builder/main/wallpapers/anime-arch.jpg
+    
+    # Права на файлы
+    chown -R $USERNAME:$USERNAME /home/$USERNAME/.config
+    chown $USERNAME:$USERNAME /home/$USERNAME/Pictures/wallpaper.jpg
+fi
+
+# Общие приложения
+pacman -S --noconfirm firefox libreoffice-fresh gimp vlc
+
+# Установка AUR helper
 runuser -u $USERNAME -- bash -c '
 cd /home/$USERNAME
 git clone https://aur.archlinux.org/yay-bin.git
@@ -207,40 +492,81 @@ cd yay-bin
 makepkg -si --noconfirm
 '
 
-
+# AUR приложения
 runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
 
+# Flatpak
+pacman -S --noconfirm flatpak
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
+flatpak install -y flathub org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio
 
+# Включение служб
 systemctl enable NetworkManager
-systemctl enable gdm
+systemctl enable sshd
+
+# Настройка GRUB
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+grub-mkconfig -o /boot/grub/grub.cfg
+
+# Автозапуск Wayland для NVIDIA
+if [[ "$INSTALL_NVIDIA_DRIVERS" == true ]]; then
+    echo "Добавление Wayland для NVIDIA..."
+    sed -i 's/^#WaylandEnable=false/WaylandEnable=true/' /etc/gdm/custom.conf
+fi
+
+# Настройка игрового режима
+if [[ "$DE_CHOICE" == "hyprland" ]]; then
+    echo "Настройка игрового режима..."
+    usermod -a -G gamemode $USERNAME
+    echo "export SDL_VIDEODRIVER=wayland" >> /home/$USERNAME/.bashrc
+    echo "export CLUTTER_BACKEND=wayland" >> /home/$USERNAME/.bashrc
+    echo "export MOZ_ENABLE_WAYLAND=1" >> /home/$USERNAME/.bashrc
+fi
 EOF
 
     chmod +x "$script_path"
 }
 
+# Запуск скрипта в chroot
 run_chroot_script() {
-    printf "[+] Выполнение конфигурации в chroot...\n"
+    printf "\n[+] Выполнение конфигурации в chroot...\n"
     arch-chroot /mnt /root/chroot_script.sh
 }
 
-install_grub() {
-    if [[ -d /sys/firmware/efi/efivars ]]; then
-        printf "[+] UEFI режим обнаружен. Установка GRUB...\n"
-        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-    else
-        printf "[!] Система не в UEFI режиме. Установка невозможна.\n" >&2
-        return 1
+# Завершение установки
+cleanup_and_reboot() {
+    printf "\n[+] Отмонтирование разделов...\n"
+    umount -R /mnt
+    
+    printf "\n[✓] Установка завершена!\n"
+    printf "    Для входа в систему используйте имя пользователя: $USERNAME\n"
+    printf "    Пароль, который вы установили во время установки\n\n"
+    
+    if [[ "$DE_CHOICE" == "hyprland" ]]; then
+        printf "    Рекомендуемые действия после установки Hyprland:\n"
+        printf "    1. Проверьте настройки монитора: hyprctl monitors\n"
+        printf "    2. Настройте Waybar: ~/.config/waybar/config\n"
+        printf "    3. Добавьте нужные приложения в автозапуск\n\n"
     fi
+    
+    read -rp "Перезагрузить систему сейчас? (yes/[no]): " reboot_confirm
+    [[ "$reboot_confirm" == "yes" ]] && reboot
 }
 
-cleanup_and_reboot() {
-    printf "[+] Отмонтирование /mnt...\n"
-    umount -R /mnt
-    printf "[✓] Установка завершена. Перезагрузите систему вручную.\n"
+# Основной процесс
+main() {
+    check_internet
+    detect_hardware
+    select_desktop_environment
+    generate_hyprland_config
+    select_disk
+    manage_partitions
+    mount_partitions
+    install_base_system
+    generate_fstab
+    create_chroot_script
+    run_chroot_script
+    cleanup_and_reboot
 }
 
 main "$@"
-
