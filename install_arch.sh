@@ -490,7 +490,7 @@ if [[ "$DE_CHOICE" == "gnome" ]]; then
 elif [[ "$DE_CHOICE" == "hyprland" ]]; then
     # Установка Hyprland и компонентов
     pacman -S --noconfirm hyprland waybar swaync sddm wofi cliphist swappy grim slurp wl-clipboard xdg-desktop-portal-hyprland $gpu_drivers
-    pacman -S --noconfirm ttf-font-awesome noto-fonts noto-fonts-emoji ttf-jetbrains-mono
+    pacman -S --noconfirm ttf-font-awesome noto-fonts noto-fonts-emoji ttf-jetbrains-mono openssh
     
     # Дополнительные пакеты для игр
     pacman -S --noconfirm steam lutris wine gamemode lib32-gamemode
@@ -543,7 +543,7 @@ pacman -S --noconfirm firefox libreoffice-fresh gimp vlc
 # Flatpak
 pacman -S --noconfirm flatpak
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install -y flathub org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio
+flatpak install --noninteractive -y flathub org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio
 
 # Включение служб
 systemctl enable NetworkManager
