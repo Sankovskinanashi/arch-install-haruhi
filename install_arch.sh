@@ -72,15 +72,18 @@ select_desktop_environment() {
 generate_hyprland_config() {
     HYPRLAND_CONFIG=$(cat <<'HYPRCONF'
 # ~/.config/hypr/hyprland.conf
-# Современный конфиг для Hyprland (актуальный для версии 0.40.0+)
+# Исправленный конфиг для Hyprland
 
-monitor=,highrr,auto,1.25
+# Монитор
+monitor=,preferred,auto,1.25
 
+# Входные устройства
 input {
     kb_layout = us,ru
     kb_options = grp:alt_shift_toggle,caps:escape
     repeat_rate = 35
     repeat_delay = 250
+    
     touchpad {
         natural_scroll = true
         tap-to-click = true
@@ -88,22 +91,28 @@ input {
     }
 }
 
+# Общие настройки
 general {
-    gaps_in = 6
-    gaps_out = 14
+    gaps_in = 5
+    gaps_out = 10
     border_size = 2
     col.active_border = rgb(89b4fa) rgb(f5c2e7) 45deg
-    col.inactive_border = rgba(585b70aa)
+    col.inactive_border = rgba(595959aa)
     layout = dwindle
     resize_on_border = true
-    allow_tearing = false
 }
 
+# Настройки окон
 dwindle {
     pseudotile = true
     preserve_split = true
 }
 
+master {
+    new_is_master = true
+}
+
+# Разное
 misc {
     disable_hyprland_logo = true
     disable_splash_rendering = true
@@ -114,47 +123,45 @@ misc {
     focus_on_activate = true
 }
 
+# Оформление
 decoration {
-    rounding = 12
-    active_opacity = 0.94
-    inactive_opacity = 0.84
+    rounding = 10
+    active_opacity = 0.95
+    inactive_opacity = 0.85
     fullscreen_opacity = 1.0
     
     blur {
         enabled = true
-        size = 6
-        passes = 3
+        size = 5
+        passes = 2
         new_optimizations = true
-        xray = true
         ignore_opacity = true
     }
     
-    drop_shadow = yes
-    shadow_range = 15
+    drop_shadow = true
+    shadow_range = 10
     shadow_render_power = 3
-    col.shadow = rgba(1a1a1aee)
-    dim_inactive = true
-    dim_strength = 0.1
+    shadow_ignore_window = true
+    col.shadow = rgba(00000099)
 }
 
+# Анимации
 animations {
-    enabled = yes
-    bezier = overshot, 0.13, 0.99, 0.29, 1.1
-    bezier = smoothOut, 0.36, 0, 0.66, -0.56
-    bezier = smoothIn, 0.25, 1, 0.5, 1
+    enabled = true
+    bezier = linear, 0.0, 0.0, 1.0, 1.0
+    bezier = easeOut, 0.0, 0.0, 0.58, 1.0
     
-    animation = windows, 1, 5, overshot, slide
-    animation = windowsOut, 1, 4, smoothOut, slide
-    animation = border, 1, 10, default
-    animation = fade, 1, 8, default
-    animation = workspaces, 1, 6, smoothIn, slidevert
+    animation = windows, 1, 4, easeOut
+    animation = windowsOut, 1, 4, easeOut
+    animation = border, 1, 4, linear
+    animation = fade, 1, 4, easeOut
+    animation = workspaces, 1, 4, easeOut
 }
 
 # Автозапуск
 exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 exec-once = systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 exec-once = /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
-exec-once = swww init && swww img ~/Pictures/wallpaper.jpg
 exec-once = waybar
 exec-once = swaync
 exec-once = nm-applet --indicator
@@ -164,17 +171,15 @@ exec-once = fcitx5 -d
 
 # Горячие клавиши
 $mainMod = SUPER
-$scripts = ~/.config/hypr/scripts
 
+# Запуск приложений
 bind = $mainMod, RETURN, exec, kitty
 bind = $mainMod, B, exec, firefox
 bind = $mainMod, E, exec, nautilus
-bind = $mainMod, Q, killactive,
-bind = $mainMod, F, fullscreen,
-bind = $mainMod, Space, togglefloating,
+bind = $mainMod, Q, killactive
+bind = $mainMod, F, fullscreen
+bind = $mainMod, SPACE, togglefloating
 bind = $mainMod, R, exec, wofi --show drun
-bind = $mainMod, P, exec, $scripts/screenshot.sh
-bind = $mainMod, L, exec, swaylock -S
 
 # Движение фокуса
 bind = $mainMod, left, movefocus, l
@@ -188,49 +193,29 @@ bind = $mainMod, 2, workspace, 2
 bind = $mainMod, 3, workspace, 3
 bind = $mainMod, 4, workspace, 4
 bind = $mainMod, 5, workspace, 5
-bind = $mainMod, 6, workspace, 6
-bind = $mainMod, 7, workspace, 7
-bind = $mainMod, 8, workspace, 8
-bind = $mainMod, 9, workspace, 9
-bind = $mainMod, 0, workspace, 10
 
-# Перенос окон
+# Перемещение окон между рабочими пространствами
 bind = $mainMod SHIFT, 1, movetoworkspace, 1
 bind = $mainMod SHIFT, 2, movetoworkspace, 2
 bind = $mainMod SHIFT, 3, movetoworkspace, 3
 bind = $mainMod SHIFT, 4, movetoworkspace, 4
 bind = $mainMod SHIFT, 5, movetoworkspace, 5
-bind = $mainMod SHIFT, 6, movetoworkspace, 6
-bind = $mainMod SHIFT, 7, movetoworkspace, 7
-bind = $mainMod SHIFT, 8, movetoworkspace, 8
-bind = $mainMod SHIFT, 9, movetoworkspace, 9
-bind = $mainMod SHIFT, 0, movetoworkspace, 10
 
-# Мультимедиа
-bind = , XF86AudioPlay, exec, playerctl play-pause
-bind = , XF86AudioNext, exec, playerctl next
-bind = , XF86AudioPrev, exec, playerctl previous
-bind = , XF86AudioRaiseVolume, exec, pamixer -i 5
-bind = , XF86AudioLowerVolume, exec, pamixer -d 5
-bind = , XF86AudioMute, exec, pamixer -t
-bind = , XF86MonBrightnessUp, exec, brightnessctl set 5%+
-bind = , XF86MonBrightnessDown, exec, brightnessctl set 5%-
+# Управление звуком
+bind = , XF86AudioRaiseVolume, exec, pactl set-sink-volume @DEFAULT_SINK@ +5%
+bind = , XF86AudioLowerVolume, exec, pactl set-sink-volume @DEFAULT_SINK@ -5%
+bind = , XF86AudioMute, exec, pactl set-sink-mute @DEFAULT_SINK@ toggle
 
 # Правила окон
 windowrule = float, ^(pavucontrol)$
 windowrule = float, ^(blueman-manager)$
 windowrule = float, ^(nm-connection-editor)$
-windowrule = float, ^(org.gnome.Calculator)$
-windowrule = center, ^(org.gnome.Calculator)$
-windowrule = size 800 600, ^(org.gnome.Calculator)$
-windowrulev2 = opacity 0.95 0.85, class:^(kitty)$
-windowrulev2 = noanim, class:^(cs2)$
-windowrulev2 = immediate, class:^(cs2)$
-windowrulev2 = noborder, class:^(cs2)$
-windowrulev2 = fullscreen, class:^(cs2)$
+windowrule = center, ^(pavucontrol)$
+windowrule = size 800 600, ^(pavucontrol)$
 HYPRCONF
 )
 }
+
 # Выбор диска
 select_disk() {
     printf "\n[*] Доступные диски:\n"
@@ -268,7 +253,8 @@ manage_partitions() {
         esac
     done
 }
-# ДОБАВЛЕНА НОВАЯ ФУНКЦИЯ
+
+# Функция для использования существующих разделов
 select_existing_partitions() {
     printf "\n[?] Вы будете использовать существующие разделы. Убедитесь, что:\n"
     printf "  - Имеется раздел EFI (FAT32) размером не менее 100M\n"
@@ -299,6 +285,35 @@ select_existing_partitions() {
     format_partition "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
 }
 
+# Функция для удаления и создания разделов
+wipe_and_create_partitions() {
+    printf "[!] Все данные на %s будут удалены!\n" "$DISK"
+    read -rp "Продолжить? (yes/[no]): " confirm
+    [[ "$confirm" != "yes" ]] && return 1
+
+    wipefs -a "$DISK"
+    parted -s "$DISK" mklabel gpt
+
+    parted -s "$DISK" mkpart "$EFI_LABEL" fat32 1MiB "$BOOT_SIZE"
+    parted -s "$DISK" set 1 esp on
+    parted -s "$DISK" mkpart "$ROOT_LABEL" "$FS_TYPE" "$BOOT_SIZE" 100%
+
+    sync
+    sleep 1
+
+    EFI_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?1$" || true)
+    ROOT_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?2$" || true)
+
+    if [[ -z "$EFI_PART" || -z "$ROOT_PART" ]]; then
+        printf "[!] Не удалось обнаружить созданные разделы\n" >&2
+        return 1
+    fi
+
+    choose_filesystem "$ROOT_PART"
+    format_partition "$EFI_PART" fat32 "$EFI_LABEL"
+    format_partition "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
+}
+
 # Ручное разбиение
 manual_partitioning() {
     printf "\n[!] Запуск cfdisk для ручного разбиения %s\n" "$DISK"
@@ -318,7 +333,7 @@ manual_partitioning() {
 # Выбор файловой системы
 choose_filesystem() {
     local part="$1"
-    printf "\n[?] Выберите файловую систему для %s:\n" "$part"
+    printf "\n[?] Выберите файловую системы для %s:\n" "$part"
     printf "  [1] ext4 (рекомендуется)\n"
     printf "  [2] btrfs (с поддержкой снапшотов)\n"
     printf "  [3] xfs (высокая производительность)\n"
@@ -478,18 +493,21 @@ fi
 # Обновление системы
 pacman -Syu --noconfirm
 
+# Установка дополнительных системных пакетов
+pacman -S --noconfirm openssh
+
 # Установка окружения рабочего стола
 if [[ "$DE_CHOICE" == "gnome" ]]; then
     # Установка GNOME
     pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber xdg-user-dirs $gpu_drivers
     systemctl enable gdm
     systemctl enable NetworkManager
-    pacman -S --noconfirm firefox libreoffice-fresh gimp vlc steam lutris wine
+    pacman -S --noconfirm firefox libreoffice-fresh gimp vlc
     
 elif [[ "$DE_CHOICE" == "hyprland" ]]; then
     # Установка Hyprland и компонентов
     pacman -S --noconfirm hyprland waybar swaync sddm wofi cliphist swappy grim slurp wl-clipboard xdg-desktop-portal-hyprland $gpu_drivers
-    pacman -S --noconfirm ttf-font-awesome noto-fonts noto-fonts-emoji ttf-jetbrains-mono openssh
+    pacman -S --noconfirm ttf-font-awesome noto-fonts noto-fonts-emoji ttf-jetbrains-mono
     
     # Дополнительные пакеты для игр
     pacman -S --noconfirm steam lutris wine gamemode lib32-gamemode
@@ -548,17 +566,34 @@ flatpak install --noninteractive -y flathub org.telegram.desktop md.obsidian.Obs
 systemctl enable NetworkManager
 systemctl enable sshd
 
+# ПЕРЕМОНТИРОВАНИЕ EFI ПЕРЕД УСТАНОВКОЙ GRUB
+echo "Проверка монтирования EFI раздела..."
+if ! mount | grep -q '/boot/efi'; then
+    echo "Перемонтирование EFI раздела..."
+    umount /boot/efi 2>/dev/null || true
+    mkdir -p /boot/efi
+    mount $EFI_PART /boot/efi
+fi
+
+# Проверка файловой системы EFI
+if ! findmnt -n -o FSTYPE /boot/efi | grep -q 'fat'; then
+    echo "ОШИБКА: Файловая система EFI не является FAT32!"
+    echo "Убедитесь, что раздел $EFI_PART отформатирован правильно."
+    exit 1
+fi
+
 # Настройка GRUB
+echo "Установка GRUB..."
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 grub-mkconfig -o /boot/grub/grub.cfg
 
-# Автозапуск Wayland для NVIDIA (только для GNOME) <- ВСТАВЬТЕ ЗДЕСЬ
+# Автозапуск Wayland для NVIDIA (только для GNOME)
 if [[ "$INSTALL_NVIDIA_DRIVERS" == true && "$DE_CHOICE" == "gnome" ]]; then
     echo "Добавление Wayland для NVIDIA в GDM..."
-    sed -i 's/^#WaylandEnable=false/WaylandEnable=true/' /etc/gdm/custom.conf
+    [ -f /etc/gdm/custom.conf ] && sed -i 's/^#WaylandEnable=false/WaylandEnable=true/' /etc/gdm/custom.conf
 fi
 
-# Настройка игрового режима для Hyprland <- После этого блока
+# Настройка игрового режима для Hyprland
 if [[ "$DE_CHOICE" == "hyprland" ]]; then
     echo "Настройка игрового режима..."
     usermod -a -G gamemode $USERNAME
@@ -614,4 +649,3 @@ main() {
 }
 
 main "$@"
-
