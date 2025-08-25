@@ -19,6 +19,10 @@ INSTALL_AMD_DRIVERS=false
 INSTALL_NVIDIA_DRIVERS=false
 DE_CHOICE=""
 HYPRLAND_CONFIG=""
+WAYBAR_CONFIG=""
+WAYBAR_STYLE=""
+SWAYNC_CONFIG=""
+SWAYNC_STYLE=""
 
 # Проверка наличия интернета
 check_internet() {
@@ -72,7 +76,7 @@ select_desktop_environment() {
 generate_hyprland_config() {
     HYPRLAND_CONFIG=$(cat <<'HYPRCONF'
 # ~/.config/hypr/hyprland.conf
-# Исправленный конфиг для Hyprland
+# Современный конфиг для Hyprland
 
 # Монитор
 monitor=,preferred,auto,1.25
@@ -100,6 +104,7 @@ general {
     col.inactive_border = rgba(595959aa)
     layout = dwindle
     resize_on_border = true
+    allow_tearing = false
 }
 
 # Настройки окон
@@ -123,7 +128,7 @@ misc {
     focus_on_activate = true
 }
 
-# Оформление
+# Оформление (исправленная версия)
 decoration {
     rounding = 10
     active_opacity = 0.95
@@ -138,11 +143,11 @@ decoration {
         ignore_opacity = true
     }
     
+    # Убраны проблемные параметры теней
     drop_shadow = true
     shadow_range = 10
     shadow_render_power = 3
-    shadow_ignore_window = true
-    col.shadow = rgba(00000099)
+    col.shadow = rgba(1a1a1aee)
 }
 
 # Анимации
@@ -213,6 +218,255 @@ windowrule = float, ^(nm-connection-editor)$
 windowrule = center, ^(pavucontrol)$
 windowrule = size 800 600, ^(pavucontrol)$
 HYPRCONF
+)
+}
+
+# Генерация конфига для Waybar
+generate_waybar_config() {
+    WAYBAR_CONFIG=$(cat <<'WAYBARCONF'
+{
+    "layer": "top",
+    "position": "top",
+    "height": 30,
+    "modules-left": ["hyprland/workspaces", "hyprland/window"],
+    "modules-center": ["clock"],
+    "modules-right": ["pulseaudio", "network", "cpu", "memory", "temperature", "battery", "tray"],
+    
+    "hyprland/workspaces": {
+        "format": "{name}",
+        "on-click": "activate"
+    },
+    
+    "clock": {
+        "format": "{:%H:%M}",
+        "tooltip-format": "{:%A, %d %B %Y}"
+    },
+    
+    "pulseaudio": {
+        "format": "{volume}% {icon}",
+        "format-muted": "🔇",
+        "format-icons": ["🔈", "🔉", "🔊"],
+        "on-click": "pactl set-sink-mute @DEFAULT_SINK@ toggle",
+        "on-scroll-up": "pactl set-sink-volume @DEFAULT_SINK@ +5%",
+        "on-scroll-down": "pactl set-sink-volume @DEFAULT_SINK@ -5%"
+    },
+    
+    "network": {
+        "format-wifi": "{signalStrength}% 📡",
+        "format-ethernet": "🌐",
+        "format-disconnected": "❌",
+        "tooltip-format": "{ifname} ({essid}) {ipaddr}/{cidr}"
+    },
+    
+    "cpu": {
+        "format": "CPU {usage}%",
+        "interval": 5
+    },
+    
+    "memory": {
+        "format": "RAM {used:0.1f}G/{total:0.1f}G",
+        "interval": 5
+    },
+    
+    "temperature": {
+        "format": "{temperatureC}°C",
+        "critical-threshold": 80,
+        "interval": 5
+    },
+    
+    "battery": {
+        "format": "{capacity}% {icon}",
+        "format-icons": ["🔋", "🔌"],
+        "format-charging": "⚡{capacity}%",
+        "interval": 10
+    }
+}
+WAYBARCONF
+)
+
+    WAYBAR_STYLE=$(cat <<'WAYBARCSS'
+* {
+    border: none;
+    border-radius: 0;
+    font-family: "JetBrains Mono", "Symbols Nerd Font";
+    font-size: 14px;
+    min-height: 0;
+}
+
+window#waybar {
+    background: rgba(40, 40, 40, 0.9);
+    color: #ffffff;
+}
+
+#workspaces button {
+    padding: 0 5px;
+    background: transparent;
+    color: #ffffff;
+    border-bottom: 3px solid transparent;
+}
+
+#workspaces button.focused {
+    background: #64727D;
+    border-bottom: 3px solid #ffffff;
+}
+
+#workspaces button.urgent {
+    background-color: #eb4d4b;
+}
+
+#clock, #battery, #cpu, #memory, #temperature, #network, #pulseaudio {
+    padding: 0 10px;
+    margin: 0 5px;
+}
+
+#clock {
+    background-color: #64727D;
+}
+
+#battery {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+#battery.charging {
+    color: #ffffff;
+    background-color: #26A65B;
+}
+
+#cpu {
+    background-color: #2ecc71;
+    color: #000000;
+}
+
+#memory {
+    background-color: #9b59b6;
+}
+
+#temperature {
+    background-color: #f0932b;
+}
+
+#temperature.critical {
+    background-color: #eb4d4b;
+}
+
+#network {
+    background-color: #2980b9;
+}
+
+#network.disconnected {
+    background-color: #f53c3c;
+}
+
+#pulseaudio {
+    background-color: #f1c40f;
+    color: #000000;
+}
+
+#pulseaudio.muted {
+    background-color: #90b1b1;
+    color: #2a5c45;
+}
+
+#tray {
+    background-color: #2980b9;
+}
+WAYBARCSS
+)
+}
+
+# Генерация конфига для SwayNC
+generate_swaync_config() {
+    SWAYNC_CONFIG=$(cat <<'SWAYNCCONF'
+{
+  "$schema": "/etc/xdg/swaync/configSchema.json",
+  "positionX": "right",
+  "positionY": "top",
+  "layer": "overlay",
+  "control-center-layer": "top",
+  "layer-shell": true,
+  "cssPriority": "user",
+  "control-center-margin-top": 8,
+  "control-center-margin-bottom": 8,
+  "control-center-margin-right": 8,
+  "control-center-margin-left": 8,
+  "notification-2fa-action": true,
+  "notification-inline-replies": false,
+  "notification-icon-size": 40,
+  "notification-body-image-height": 100,
+  "notification-body-image-width": 200,
+  "timeout": 10,
+  "timeout-low": 5,
+  "timeout-critical": 0,
+  "fit-to-screen": true,
+  "relative-timestamps": true,
+  "keyboard-shortcuts": true,
+  "image-visibility": "when-available",
+  "transition-time": 200,
+  "hide-on-clear": true,
+  "hide-on-action": true,
+  "script-fail-notify": true
+}
+SWAYNCCONF
+)
+
+    SWAYNC_STYLE=$(cat <<'SWAYNCCSS'
+* {
+    font-family: "JetBrains Mono", "Symbols Nerd Font";
+    font-size: 14px;
+}
+
+.notification-row {
+    outline: none;
+}
+
+.notification {
+    border-radius: 12px;
+    margin: 6px;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+    background: rgba(40, 40, 40, 0.95);
+    color: #ffffff;
+}
+
+.notification-content {
+    background: transparent;
+    padding: 6px;
+    border-radius: 12px;
+}
+
+.close-button {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    text-shadow: none;
+    padding: 2px;
+    border-radius: 6px;
+    margin: 4px;
+}
+
+.close-button:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transition: all 0.15s ease-in-out;
+}
+
+.notification-default-action {
+    border-radius: 12px;
+}
+
+.control-center {
+    background: rgba(40, 40, 40, 0.95);
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.control-center-list {
+    background: transparent;
+}
+
+.floating-notifications {
+    background: transparent;
+}
+SWAYNCCSS
 )
 }
 
@@ -522,6 +776,26 @@ elif [[ "$DE_CHOICE" == "hyprland" ]]; then
 $HYPRLAND_CONFIG
 HYPRCONF
     
+    # Создание конфига Waybar
+    mkdir -p /home/$USERNAME/.config/waybar
+    cat > /home/$USERNAME/.config/waybar/config << 'WAYBARCONF'
+$WAYBAR_CONFIG
+WAYBARCONF
+    
+    cat > /home/$USERNAME/.config/waybar/style.css << 'WAYBARCSS'
+$WAYBAR_STYLE
+WAYBARCSS
+    
+    # Создание конфига SwayNC
+    mkdir -p /home/$USERNAME/.config/swaync
+    cat > /home/$USERNAME/.config/swaync/config.json << 'SWAYNCCONF'
+$SWAYNC_CONFIG
+SWAYNCCONF
+    
+    cat > /home/$USERNAME/.config/swaync/style.css << 'SWAYNCCSS'
+$SWAYNC_STYLE
+SWAYNCCSS
+    
     # Создание скрипта для скриншотов
     mkdir -p /home/$USERNAME/.config/hypr/scripts
     cat > /home/$USERNAME/.config/hypr/scripts/screenshot.sh << 'SCR'
@@ -638,6 +912,8 @@ main() {
     detect_hardware
     select_desktop_environment
     generate_hyprland_config
+    generate_waybar_config
+    generate_swaync_config
     select_disk
     manage_partitions
     mount_partitions
