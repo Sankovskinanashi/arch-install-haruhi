@@ -76,23 +76,17 @@ select_desktop_environment() {
 generate_hyprland_config() {
     HYPRLAND_CONFIG=$(cat <<'HYPRCONF'
 # ~/.config/hypr/hyprland.conf
-# Современный конфиг для Hyprland
+# Базовый конфиг для Hyprland
 
 # Монитор
-monitor=,preferred,auto,1.25
+monitor=,preferred,auto,1
 
 # Входные устройства
 input {
     kb_layout = us,ru
-    kb_options = grp:alt_shift_toggle,caps:escape
+    kb_options = grp:alt_shift_toggle
     repeat_rate = 35
     repeat_delay = 250
-    
-    touchpad {
-        natural_scroll = true
-        tap-to-click = true
-        disable_while_typing = true
-    }
 }
 
 # Общие настройки
@@ -100,11 +94,9 @@ general {
     gaps_in = 5
     gaps_out = 10
     border_size = 2
-    col.active_border = rgb(89b4fa) rgb(f5c2e7) 45deg
+    col.active_border = rgb(89b4fa)
     col.inactive_border = rgba(595959aa)
     layout = dwindle
-    resize_on_border = true
-    allow_tearing = false
 }
 
 # Настройки окон
@@ -121,66 +113,32 @@ master {
 misc {
     disable_hyprland_logo = true
     disable_splash_rendering = true
-    vfr = true
-    vrr = 1
-    enable_swallow = true
-    swallow_regex = ^(kitty|Alacritty)$
-    focus_on_activate = true
 }
 
-# Оформление (исправленная версия)
+# Оформление
 decoration {
-    rounding = 10
-    active_opacity = 0.95
-    inactive_opacity = 0.85
+    rounding = 5
+    active_opacity = 1.0
+    inactive_opacity = 1.0
     fullscreen_opacity = 1.0
-    
-    blur {
-        enabled = true
-        size = 5
-        passes = 2
-        new_optimizations = true
-        ignore_opacity = true
-    }
-    
-    # Убраны проблемные параметры теней
-    drop_shadow = true
-    shadow_range = 10
-    shadow_render_power = 3
-    col.shadow = rgba(1a1a1aee)
+    drop_shadow = false
 }
 
 # Анимации
 animations {
-    enabled = true
-    bezier = linear, 0.0, 0.0, 1.0, 1.0
-    bezier = easeOut, 0.0, 0.0, 0.58, 1.0
-    
-    animation = windows, 1, 4, easeOut
-    animation = windowsOut, 1, 4, easeOut
-    animation = border, 1, 4, linear
-    animation = fade, 1, 4, easeOut
-    animation = workspaces, 1, 4, easeOut
+    enabled = false
 }
 
 # Автозапуск
 exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 exec-once = systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 exec-once = /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
-exec-once = waybar
-exec-once = swaync
-exec-once = nm-applet --indicator
-exec-once = blueman-applet
-exec-once = wl-paste --watch cliphist store
-exec-once = fcitx5 -d
 
 # Горячие клавиши
 $mainMod = SUPER
 
 # Запуск приложений
 bind = $mainMod, RETURN, exec, kitty
-bind = $mainMod, B, exec, firefox
-bind = $mainMod, E, exec, nautilus
 bind = $mainMod, Q, killactive
 bind = $mainMod, F, fullscreen
 bind = $mainMod, SPACE, togglefloating
@@ -210,13 +168,6 @@ bind = $mainMod SHIFT, 5, movetoworkspace, 5
 bind = , XF86AudioRaiseVolume, exec, pactl set-sink-volume @DEFAULT_SINK@ +5%
 bind = , XF86AudioLowerVolume, exec, pactl set-sink-volume @DEFAULT_SINK@ -5%
 bind = , XF86AudioMute, exec, pactl set-sink-mute @DEFAULT_SINK@ toggle
-
-# Правила окон
-windowrule = float, ^(pavucontrol)$
-windowrule = float, ^(blueman-manager)$
-windowrule = float, ^(nm-connection-editor)$
-windowrule = center, ^(pavucontrol)$
-windowrule = size 800 600, ^(pavucontrol)$
 HYPRCONF
 )
 }
@@ -599,7 +550,7 @@ choose_filesystem() {
             2) FS_TYPE="btrfs"; break ;;
             3) FS_TYPE="xfs"; break ;;
             *) printf "[!] Неверный выбор\n" >&2 ;;
-        esac
+        esaca
     done
 }
 
@@ -858,7 +809,12 @@ fi
 
 # Настройка GRUB
 echo "Установка GRUB..."
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+if grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck; then
+    echo "GRUB установлен успешно."
+else
+    echo "Попытка установки GRUB в removable режиме..."
+    grub-install --target=x86_64-efi --efi-directory=/boot/efi --removable --recheck
+fi
 grub-mkconfig -o /boot/grub/grub.cfg
 
 # Автозапуск Wayland для NVIDIA (только для GNOME)
