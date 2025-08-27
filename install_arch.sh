@@ -550,7 +550,7 @@ choose_filesystem() {
             2) FS_TYPE="btrfs"; break ;;
             3) FS_TYPE="xfs"; break ;;
             *) printf "[!] Неверный выбор\n" >&2 ;;
-        esaca
+        esac
     done
 }
 
@@ -881,3 +881,4 @@ main() {
 }
 
 main "$@"
+
