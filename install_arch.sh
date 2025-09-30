@@ -250,126 +250,140 @@ generate_fstab() {
 
 create_chroot_script() {
     local script_path="/mnt/root/chroot_script.sh"
-    cat > "$script_path" <<EOF
+    cat > "$script_path" <<'EOF'
 #!/bin/bash
 set -euo pipefail
 
 # Базовая системная конфигурация
-printf "[+] Настройка времени...\\n"
-ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+printf "[+] Настройка времени...\n"
+ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
 hwclock --systohc
 
-printf "[+] Настройка локали...\\n"
-sed -i 's/^#\\($LOCALE\\)/\\1/' /etc/locale.gen
-sed -i 's/^#\\(en_US.UTF-8\\)/\\1/' /etc/locale.gen
+printf "[+] Настройка локали...\n"
+sed -i 's/^#\(ru_RU.UTF-8\)/\1/' /etc/locale.gen
+sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
 locale-gen
 
-echo "LANG=$LOCALE" > /etc/locale.conf
-echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
-echo "$HOSTNAME" > /etc/hostname
+echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
+echo "KEYMAP=ru" > /etc/vconsole.conf
+echo "haruhi" > /etc/hostname
 
 cat > /etc/hosts << HOSTS
 127.0.0.1   localhost
 ::1         localhost
-127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
+127.0.1.1   haruhi.localdomain haruhi
 HOSTS
 
 # Установка паролей
 echo "Установка пароля root:"
 passwd
-useradd -m -G wheel -s /bin/bash $USERNAME
-echo "Установка пароля для пользователя $USERNAME:"
-passwd $USERNAME
-grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
+useradd -m -G wheel -s /bin/bash kyon
+echo "Установка пароля для пользователя kyon:"
+passwd kyon
+
+# Настройка sudo без пароля для установки
+echo "kyon ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 # Настройка pacman
 sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
 sed -i 's/^#Color/Color/' /etc/pacman.conf
 
 # Включение multilib репозитория (для 32-битных приложений)
-sed -i '/^#\\[multilib\\]/,+1 s/^#//' /etc/pacman.conf
+sed -i '/^#\[multilib\]/,+1 s/^#//' /etc/pacman.conf
 
+# Обновление базы пакетов
 pacman -Syu --noconfirm
 
 # Установка i3 и зависимостей
-printf "[+] Установка Xorg и i3...\\n"
+printf "[+] Установка Xorg и i3...\n"
 pacman -S --noconfirm xorg xorg-xinit xorg-server i3-wm i3status i3lock dmenu alacritty
 
 if [ "$INSTALL_TYPE" = "full" ]; then
-    printf "[+] Установка дополнительных пакетов...\\n"
-    pacman -S --noconfirm \\
-        firefox \\
-        thunar thunar-archive-plugin file-roller \\
-        ristretto \\
-        pavucontrol \\
-        papirus-icon-theme \\
-        lightdm lightdm-gtk-greeter \\
-        pipewire pipewire-alsa pipewire-pulse wireplumber \\
-        network-manager-applet \\
-        git htop neofetch \\
-        noto-fonts noto-fonts-cjk noto-fonts-emoji \\
+    printf "[+] Установка дополнительных пакетов...\n"
+    pacman -S --noconfirm \
+        firefox \
+        thunar thunar-archive-plugin file-roller \
+        ristretto \
+        pavucontrol \
+        papirus-icon-theme \
+        lightdm lightdm-gtk-greeter \
+        pipewire pipewire-alsa pipewire-pulse wireplumber \
+        network-manager-applet \
+        git htop \
+        flatpak \
+        noto-fonts noto-fonts-cjk noto-fonts-emoji \
         ttf-dejavu ttf-liberation
 
+    # Установка Go для сборки yay
+    printf "[+] Установка Go...\n"
+    pacman -S --noconfirm go
+
     # Установка AUR helper (yay)
-    printf "[+] Установка yay...\\n"
-    runuser -u $USERNAME -- bash -c '
-    cd /home/$USERNAME
+    printf "[+] Установка yay...\n"
+    runuser -u kyon -- bash -c '
+    cd /home/kyon
     git clone https://aur.archlinux.org/yay.git
     cd yay
     makepkg -si --noconfirm --needed
     '
 
     # Установка AUR пакетов
-    printf "[+] Установка AUR пакетов...\\n"
-    runuser -u $USERNAME -- yay -S --noconfirm \\
-        visual-studio-code-bin \\
+    printf "[+] Установка AUR пакетов...\n"
+    runuser -u kyon -- yay -S --noconfirm --noprovides --answeredit None --answerclean None --answerdiff None \
+        visual-studio-code-bin \
         discord
 
     # Установка Flatpak
-    printf "[+] Настройка Flatpak...\\n"
+    printf "[+] Настройка Flatpak...\n"
     flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-    runuser -u $USERNAME -- flatpak install -y flathub \\
-        org.telegram.desktop \\
-        md.obsidian.Obsidian \\
+    runuser -u kyon -- flatpak install -y flathub \
+        org.telegram.desktop \
+        md.obsidian.Obsidian \
         com.spotify.Client
 
     # Включение LightDM
     systemctl enable lightdm
 else
     # Минимальная установка - только базовый i3
-    printf "[+] Минимальная установка - только i3 и необходимые пакеты\\n"
-    pacman -S --noconfirm \\
-        firefox \\
-        alacritty \\
-        network-manager-applet \\
+    printf "[+] Минимальная установка - только i3 и необходимые пакеты\n"
+    pacman -S --noconfirm \
+        firefox \
+        alacritty \
+        network-manager-applet \
         noto-fonts
 fi
 
+# Удаление временной настройки sudo без пароля
+sed -i "/kyon ALL=(ALL) NOPASSWD: ALL/d" /etc/sudoers
+
+# Настройка обычного sudo с паролем
+echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+
 # Настройка автозапуска i3
 if [ "$INSTALL_TYPE" = "minimal" ]; then
-    printf "[i] Для запуска i3 добавьте 'exec i3' в ~/.xinitrc и используйте 'startx'\\n"
+    printf "[i] Для запуска i3 добавьте 'exec i3' в ~/.xinitrc и используйте 'startx'\n"
 fi
 
 # Создание конфига i3 для пользователя
-runuser -u $USERNAME -- mkdir -p /home/$USERNAME/.config/i3
-runuser -u $USERNAME -- bash -c 'if [ -f /etc/i3/config ]; then cp /etc/i3/config /home/$USERNAME/.config/i3/config; fi'
+runuser -u kyon -- mkdir -p /home/kyon/.config/i3
+runuser -u kyon -- bash -c 'if [ -f /etc/i3/config ]; then cp /etc/i3/config /home/kyon/.config/i3/config; fi'
 
 # Включение NetworkManager
 systemctl enable NetworkManager
 
 # Настройка .xinitrc для минимальной установки
 if [ "$INSTALL_TYPE" = "minimal" ]; then
-    runuser -u $USERNAME -- bash -c 'echo "exec i3" > /home/$USERNAME/.xinitrc'
-    runuser -u $USERNAME -- chmod +x /home/$USERNAME/.xinitrc
+    runuser -u kyon -- bash -c 'echo "exec i3" > /home/kyon/.xinitrc'
+    runuser -u kyon -- chmod +x /home/kyon/.xinitrc
 fi
 
-printf "\\n[✓] Установка завершена!\\n"
+printf "\n[✓] Установка завершена!\n"
 if [ "$INSTALL_TYPE" = "full" ]; then
-    printf "[i] Система будет запускать i3 через LightDM\\n"
+    printf "[i] Система будет запускать i3 через LightDM\n"
 else
-    printf "[i] Для запуска i3 выполните: startx\\n"
+    printf "[i] Для запуска i3 выполните: startx\n"
 fi
-printf "[i] Не забудьте настроить i3 под свои нужды\\n"
+printf "[i] Не забудьте настроить i3 под свои нужды\n"
 EOF
 
     chmod +x "$script_path"
@@ -402,22 +416,17 @@ cleanup_and_reboot() {
     printf "\n[i] После перезагрузки:\n"
     if [ "$INSTALL_TYPE" = "full" ]; then
         printf "    - Система запустится в LightDM\n"
-        printf "    - Войдите под пользователем $USERNAME\n"
+        printf "    - Войдите под пользователем kyon\n"
     else
-        printf "    - Войдите под пользователем $USERNAME\n"
+        printf "    - Войдите под пользователем kyon\n"
         printf "    - Выполните: startx\n"
     fi
-}
-
-list_partitions() {
-    printf "\n[*] Существующие разделы на %s:\n" "$DISK"
-    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,PartLabel "$DISK" | grep -v "NAME"
 }
 
 prompt_partition_action() {
     printf "\n[?] Что вы хотите сделать с разделами?\n"
     printf "  [1] Использовать существующие\n"
-    printf "  [2] Удалить все и создать заново\n"
+    printf "  [2] Удалить все и создать зановo\n"
     read -rp "Выбор: " action
     case "$action" in
         1) select_existing_partitions ;;
