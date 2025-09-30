@@ -35,16 +35,16 @@ main() {
 
 select_install_type() {
     printf "\n[?] Выберите тип установки:\n"
-    printf "  [1] Полная (GNOME + все приложения)\n"
-    printf "  [2] Минимальная (базовая система)\n"
+    printf "  [1] Полная (i3 + все приложения)\n"
+    printf "  [2] Минимальная (базовый i3)\n"
     read -rp "Выбор [1/2]: " choice
     
     case "$choice" in
         1) INSTALL_TYPE="full" ;;
         2) INSTALL_TYPE="minimal" ;;
         *) 
-            printf "[!] Неверный выбор, используем полную установку\n"
-            INSTALL_TYPE="full" 
+            printf "[!] Неверный выбор, используем минимальную установку\n"
+            INSTALL_TYPE="minimal" 
             ;;
     esac
 }
@@ -197,6 +197,7 @@ create_chroot_script() {
 #!/bin/bash
 set -euo pipefail
 
+# Базовая системная конфигурация
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
 
@@ -213,36 +214,93 @@ cat > /etc/hosts << HOSTS
 127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 HOSTS
 
+# Установка паролей
+echo "Установка пароля root:"
 passwd
 useradd -m -G wheel -s /bin/bash $USERNAME
+echo "Установка пароля для пользователя $USERNAME:"
 passwd $USERNAME
 grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
-$EDITOR /etc/pacman.conf
-
+# Настройка pacman
+sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
 pacman -Syu --noconfirm
 
-if [ "$INSTALL_TYPE" = "full" ]; then
-    pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber wireguard-tools steam lutris wine
+# Установка i3 и зависимостей
+printf "[+] Установка Xorg и i3...\\n"
+pacman -S --noconfirm xorg xorg-xinit xorg-server i3-wm i3status i3lock dmenu alacritty
 
+if [ "$INSTALL_TYPE" = "full" ]; then
+    printf "[+] Установка дополнительных пакетов...\\n"
+    pacman -S --noconfirm \\
+        firefox \\
+        thunar thunar-archive-plugin file-roller \\
+        ristretto \\
+        pavucontrol \\
+        arc-gtk-theme papirus-icon-theme \\
+        lightdm lightdm-gtk-greeter \\
+        pipewire pipewire-alsa pipewire-pulse wireplumber \\
+        network-manager-applet \\
+        git htop neofetch
+
+    # Установка AUR helper (yay)
+    printf "[+] Установка yay...\\n"
     runuser -u $USERNAME -- bash -c '
     cd /home/$USERNAME
     git clone https://aur.archlinux.org/yay.git
     cd yay
-    makepkg -si --noconfirm
+    makepkg -si --noconfirm --needed
     '
 
-    runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
+    # Установка AUR пакетов
+    printf "[+] Установка AUR пакетов...\\n"
+    runuser -u $USERNAME -- yay -S --noconfirm \\
+        visual-studio-code-bin \\
+        discord
 
+    # Установка Flatpak
+    printf "[+] Настройка Flatpak...\\n"
     flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-    flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
+    runuser -u $USERNAME -- flatpak install -y flathub \\
+        org.telegram.desktop \\
+        md.obsidian.Obsidian \\
+        com.spotify.Client
+
+    # Включение LightDM
+    systemctl enable lightdm
+else
+    # Минимальная установка - только базовый i3
+    printf "[+] Минимальная установка - только i3 и необходимые пакеты\\n"
+    pacman -S --noconfirm \\
+        firefox \\
+        alacritty \\
+        network-manager-applet
 fi
 
+# Настройка автозапуска i3
+if [ "$INSTALL_TYPE" = "minimal" ]; then
+    printf "[i] Для запуска i3 добавьте 'exec i3' в ~/.xinitrc и используйте 'startx'\\n"
+fi
+
+# Создание конфига i3 для пользователя
+runuser -u $USERNAME -- mkdir -p /home/$USERNAME/.config/i3
+runuser -u $USERNAME -- cp /etc/i3/config /home/$USERNAME/.config/i3/config
+
+# Включение NetworkManager
 systemctl enable NetworkManager
 
-if [ "$INSTALL_TYPE" = "full" ]; then
-    systemctl enable gdm
+# Настройка .xinitrc для минимальной установки
+if [ "$INSTALL_TYPE" = "minimal" ]; then
+    runuser -u $USERNAME -- bash -c 'echo "exec i3" > /home/$USERNAME/.xinitrc'
 fi
+
+printf "\\n[✓] Установка завершена!\\n"
+if [ "$INSTALL_TYPE" = "full" ]; then
+    printf "[i] Система будет запускать i3 через LightDM\\n"
+else
+    printf "[i] Для запуска i3 выполните: startx\\n"
+fi
+printf "[i] Не забудьте настроить i3 под свои нужды\\n"
 EOF
 
     chmod +x "$script_path"
@@ -268,6 +326,7 @@ cleanup_and_reboot() {
     printf "[+] Отмонтирование /mnt...\n"
     umount -R /mnt
     printf "[✓] Установка завершена. Перезагрузите систему вручную.\n"
+    printf "[i] Команда для перезагрузки: reboot\n"
 }
 
 main "$@"
