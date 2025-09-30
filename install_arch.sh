@@ -47,6 +47,9 @@ select_install_type() {
             INSTALL_TYPE="minimal" 
             ;;
     esac
+    
+    # Сохраняем тип установки в файл для передачи в chroot
+    echo "$INSTALL_TYPE" > /tmp/install_type
 }
 
 check_internet() {
@@ -250,9 +253,17 @@ generate_fstab() {
 
 create_chroot_script() {
     local script_path="/mnt/root/chroot_script.sh"
+    
+    # Копируем файл с типом установки в chroot
+    cp /tmp/install_type /mnt/root/install_type
+    
     cat > "$script_path" <<'EOF'
 #!/bin/bash
 set -euo pipefail
+
+# Читаем тип установки из файла
+INSTALL_TYPE=$(cat /root/install_type)
+echo "[+] Тип установки: $INSTALL_TYPE"
 
 # Базовая системная конфигурация
 printf "[+] Настройка времени...\n"
@@ -377,6 +388,9 @@ if [ "$INSTALL_TYPE" = "minimal" ]; then
     runuser -u kyon -- chmod +x /home/kyon/.xinitrc
 fi
 
+# Удаляем временный файл
+rm -f /root/install_type
+
 printf "\n[✓] Установка завершена!\n"
 if [ "$INSTALL_TYPE" = "full" ]; then
     printf "[i] Система будет запускать i3 через LightDM\n"
@@ -407,6 +421,9 @@ install_grub() {
 }
 
 cleanup_and_reboot() {
+    # Удаляем временный файл
+    rm -f /tmp/install_type
+    
     printf "[+] Отмонтирование разделов...\n"
     umount -R /mnt
     printf "[✓] Установка завершена!\n"
