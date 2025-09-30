@@ -77,24 +77,39 @@ select_disk() {
 
 list_partitions() {
     printf "\n[*] Существующие разделы на %s:\n" "$DISK"
-    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT "$DISK"
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,PartLabel "$DISK" | grep -v "NAME"
 }
 
-prompt_partition_action() {
-    printf "\n[?] Что вы хотите сделать с разделами?\n"
-    printf "  [1] Использовать существующие\n"
-    printf "  [2] Удалить все и создать заново\n"
-    read -rp "Выбор: " action
-    case "$action" in
-        1) select_existing_partitions ;;
-        2) wipe_and_create_partitions ;;
-        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
-    esac
+show_disk_layout() {
+    printf "\n[+] Текущая разметка диска %s:\n" "$DISK"
+    fdisk -l "$DISK" | grep -E "^/dev/"
+    printf "\n"
 }
 
 select_existing_partitions() {
-    read -rp "[?] Укажите EFI раздел (например /dev/sda1): " EFI_PART
-    read -rp "[?] Укажите ROOT раздел (например /dev/sda2): " ROOT_PART
+    printf "\n[*] Выбор существующих разделов:\n"
+    show_disk_layout
+    
+    printf "[?] Выберите EFI раздел (например /dev/sda1):\n"
+    printf "Доступные разделы:\n"
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,PartLabel "$DISK" | grep -v "NAME"
+    read -rp "EFI раздел: " EFI_PART
+    
+    if [[ ! -b "$EFI_PART" ]]; then
+        printf "[!] Раздел %s не существует\n" "$EFI_PART" >&2
+        return 1
+    fi
+    
+    printf "\n[?] Выберите ROOT раздел (например /dev/sda2):\n"
+    printf "Доступные разделы:\n"
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,PartLabel "$DISK" | grep -v "NAME"
+    read -rp "ROOT раздел: " ROOT_PART
+    
+    if [[ ! -b "$ROOT_PART" ]]; then
+        printf "[!] Раздел %s не существует\n" "$ROOT_PART" >&2
+        return 1
+    fi
+    
     choose_filesystem "$ROOT_PART"
     format_partition "$EFI_PART" fat32 "$EFI_LABEL"
     format_partition "$ROOT_PART" "$FS_TYPE" "$ROOT_LABEL"
@@ -102,25 +117,54 @@ select_existing_partitions() {
 
 wipe_and_create_partitions() {
     printf "[!] Все данные на %s будут удалены!\n" "$DISK"
+    printf "Текущая разметка:\n"
+    show_disk_layout
     read -rp "Продолжить? (yes/[no]): " confirm
     [[ "$confirm" != "yes" ]] && return 1
 
+    printf "[+] Очистка диска...\n"
     wipefs -a "$DISK"
     parted -s "$DISK" mklabel gpt
 
+    printf "[+] Создание разделов...\n"
+    printf "  - EFI раздел: 1MiB - %s\n" "$BOOT_SIZE"
     parted -s "$DISK" mkpart "$EFI_LABEL" fat32 1MiB "$BOOT_SIZE"
     parted -s "$DISK" set 1 esp on
+    
+    printf "  - ROOT раздел: %s - 100%%\n" "$BOOT_SIZE"
     parted -s "$DISK" mkpart "$ROOT_LABEL" "$FS_TYPE" "$BOOT_SIZE" 100%
 
     sync
-    sleep 1
+    sleep 2
 
-    EFI_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?1$" || true)
-    ROOT_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?2$" || true)
+    printf "\n[+] Созданные разделы:\n"
+    show_disk_layout
 
-    if [[ -z "$EFI_PART" || -z "$ROOT_PART" ]]; then
+    # Автоматическое определение созданных разделов
+    EFI_PART=""
+    ROOT_PART=""
+    
+    # Для NVMe дисков (например /dev/nvme0n1p1)
+    if [[ "$DISK" =~ nvme ]]; then
+        EFI_PART="${DISK}p1"
+        ROOT_PART="${DISK}p2"
+    else
+        # Для SATA дисков (например /dev/sda1)
+        EFI_PART="${DISK}1"
+        ROOT_PART="${DISK}2"
+    fi
+
+    printf "[+] Определены разделы:\n"
+    printf "  EFI:  %s\n" "$EFI_PART"
+    printf "  ROOT: %s\n" "$ROOT_PART"
+
+    if [[ ! -b "$EFI_PART" || ! -b "$ROOT_PART" ]]; then
         printf "[!] Не удалось обнаружить созданные разделы\n" >&2
-        return 1
+        printf "[!] Пожалуйста, укажите разделы вручную:\n"
+        printf "Доступные разделы:\n"
+        lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,PartLabel "$DISK" | grep -v "NAME"
+        read -rp "EFI раздел: " EFI_PART
+        read -rp "ROOT раздел: " ROOT_PART
     fi
 
     choose_filesystem "$ROOT_PART"
@@ -131,29 +175,32 @@ wipe_and_create_partitions() {
 choose_filesystem() {
     local part="$1"
     printf "\n[?] Выберите файловую систему для %s:\n" "$part"
-    printf "  [1] ext4\n"
-    printf "  [2] btrfs\n"
-    read -rp "Выбор: " fs
+    printf "  [1] ext4 (рекомендуется)\n"
+    printf "  [2] btrfs (с поддержкой снапшотов)\n"
+    read -rp "Выбор [1/2]: " fs
     case "$fs" in
         1) FS_TYPE="ext4" ;;
         2) FS_TYPE="btrfs" ;;
-        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
+        *) 
+            printf "[!] Неверный выбор, используем ext4\n"
+            FS_TYPE="ext4" 
+            ;;
     esac
+    printf "[+] Выбрана файловая система: %s\n" "$FS_TYPE"
 }
 
 format_partition() {
     local part="$1" fstype="$2" label="$3"
+    printf "[+] Форматирование %s как %s с меткой %s...\n" "$part" "$fstype" "$label"
+    
     case "$fstype" in
         fat32)
-            printf "[+] Форматирование %s в FAT32...\n" "$part"
-            mkfs.fat -F32 "$part" || return 1
+            mkfs.fat -F32 -n "$label" "$part" || return 1
             ;;
         ext4)
-            printf "[+] Форматирование %s в ext4...\n" "$part"
-            mkfs.ext4 -L "$label" "$part" || return 1
+            mkfs.ext4 -F -L "$label" "$part" || return 1
             ;;
         btrfs)
-            printf "[+] Форматирование %s в Btrfs...\n" "$part"
             mkfs.btrfs -f -L "$label" "$part" || return 1
             ;;
         *)
@@ -161,13 +208,20 @@ format_partition() {
             return 1
             ;;
     esac
+    printf "[✓] Раздел %s отформатирован\n" "$part"
 }
 
 mount_partitions() {
-    printf "[+] Монтирование корневого раздела...\n"
+    printf "[+] Монтирование разделов...\n"
+    printf "  - Корневой раздел %s -> /mnt\n" "$ROOT_PART"
     mount "$ROOT_PART" /mnt
+    
+    printf "  - EFI раздел %s -> /mnt/boot/efi\n" "$EFI_PART"
     mkdir -p /mnt/boot/efi
     mount "$EFI_PART" /mnt/boot/efi
+    
+    printf "[+] Текущая структура монтирования:\n"
+    mount | grep "/mnt"
 }
 
 enable_ntp() {
@@ -183,12 +237,15 @@ install_base_system() {
     fi
 
     printf "[+] Установка базовой системы...\n"
+    printf "[!] Устанавливаемые пакеты: %s\n" "$packages"
     pacstrap /mnt $packages
 }
 
 generate_fstab() {
     printf "[+] Генерация fstab...\n"
     genfstab -U /mnt >> /mnt/etc/fstab
+    printf "[+] Содержимое fstab:\n"
+    cat /mnt/etc/fstab
 }
 
 create_chroot_script() {
@@ -198,9 +255,11 @@ create_chroot_script() {
 set -euo pipefail
 
 # Базовая системная конфигурация
+printf "[+] Настройка времени...\\n"
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
 
+printf "[+] Настройка локали...\\n"
 sed -i 's/^#\\($LOCALE\\)/\\1/' /etc/locale.gen
 sed -i 's/^#\\(en_US.UTF-8\\)/\\1/' /etc/locale.gen
 locale-gen
@@ -208,6 +267,7 @@ locale-gen
 echo "LANG=$LOCALE" > /etc/locale.conf
 echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
 echo "$HOSTNAME" > /etc/hostname
+
 cat > /etc/hosts << HOSTS
 127.0.0.1   localhost
 ::1         localhost
@@ -224,6 +284,11 @@ grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
 # Настройка pacman
 sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
+sed -i 's/^#Color/Color/' /etc/pacman.conf
+
+# Включение multilib репозитория (для 32-битных приложений)
+sed -i '/^#\\[multilib\\]/,+1 s/^#//' /etc/pacman.conf
+
 pacman -Syu --noconfirm
 
 # Установка i3 и зависимостей
@@ -237,11 +302,13 @@ if [ "$INSTALL_TYPE" = "full" ]; then
         thunar thunar-archive-plugin file-roller \\
         ristretto \\
         pavucontrol \\
-        arc-gtk-theme papirus-icon-theme \\
+        papirus-icon-theme \\
         lightdm lightdm-gtk-greeter \\
         pipewire pipewire-alsa pipewire-pulse wireplumber \\
         network-manager-applet \\
-        git htop neofetch
+        git htop neofetch \\
+        noto-fonts noto-fonts-cjk noto-fonts-emoji \\
+        ttf-dejavu ttf-liberation
 
     # Установка AUR helper (yay)
     printf "[+] Установка yay...\\n"
@@ -274,7 +341,8 @@ else
     pacman -S --noconfirm \\
         firefox \\
         alacritty \\
-        network-manager-applet
+        network-manager-applet \\
+        noto-fonts
 fi
 
 # Настройка автозапуска i3
@@ -284,7 +352,7 @@ fi
 
 # Создание конфига i3 для пользователя
 runuser -u $USERNAME -- mkdir -p /home/$USERNAME/.config/i3
-runuser -u $USERNAME -- cp /etc/i3/config /home/$USERNAME/.config/i3/config
+runuser -u $USERNAME -- bash -c 'if [ -f /etc/i3/config ]; then cp /etc/i3/config /home/$USERNAME/.config/i3/config; fi'
 
 # Включение NetworkManager
 systemctl enable NetworkManager
@@ -292,6 +360,7 @@ systemctl enable NetworkManager
 # Настройка .xinitrc для минимальной установки
 if [ "$INSTALL_TYPE" = "minimal" ]; then
     runuser -u $USERNAME -- bash -c 'echo "exec i3" > /home/$USERNAME/.xinitrc'
+    runuser -u $USERNAME -- chmod +x /home/$USERNAME/.xinitrc
 fi
 
 printf "\\n[✓] Установка завершена!\\n"
@@ -316,6 +385,7 @@ install_grub() {
         printf "[+] UEFI режим обнаружен. Установка GRUB...\n"
         arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
         arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+        printf "[✓] GRUB установлен в %s\n" "$EFI_PART"
     else
         printf "[!] Система не в UEFI режиме. Установка невозможна.\n" >&2
         return 1
@@ -323,10 +393,37 @@ install_grub() {
 }
 
 cleanup_and_reboot() {
-    printf "[+] Отмонтирование /mnt...\n"
+    printf "[+] Отмонтирование разделов...\n"
     umount -R /mnt
-    printf "[✓] Установка завершена. Перезагрузите систему вручную.\n"
-    printf "[i] Команда для перезагрузки: reboot\n"
+    printf "[✓] Установка завершена!\n"
+    printf "\n[i] Команды для перезагрузки:\n"
+    printf "    umount -R /mnt  # если не отмонтировалось\n"
+    printf "    reboot\n"
+    printf "\n[i] После перезагрузки:\n"
+    if [ "$INSTALL_TYPE" = "full" ]; then
+        printf "    - Система запустится в LightDM\n"
+        printf "    - Войдите под пользователем $USERNAME\n"
+    else
+        printf "    - Войдите под пользователем $USERNAME\n"
+        printf "    - Выполните: startx\n"
+    fi
+}
+
+list_partitions() {
+    printf "\n[*] Существующие разделы на %s:\n" "$DISK"
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,PartLabel "$DISK" | grep -v "NAME"
+}
+
+prompt_partition_action() {
+    printf "\n[?] Что вы хотите сделать с разделами?\n"
+    printf "  [1] Использовать существующие\n"
+    printf "  [2] Удалить все и создать заново\n"
+    read -rp "Выбор: " action
+    case "$action" in
+        1) select_existing_partitions ;;
+        2) wipe_and_create_partitions ;;
+        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
+    esac
 }
 
 main "$@"
