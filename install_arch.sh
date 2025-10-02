@@ -347,9 +347,7 @@ if [ "$INSTALL_TYPE" = "full" ]; then
     # Установка Flatpak
     printf "[+] Настройка Flatpak...\n"
     flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-    runuser -u kyon -- flatpak install -y flathub \
-        org.telegram.desktop \
-        md.obsidian.Obsidian \
+    runuser -u kyon -- flatpak install -y flathub 
 
     # Включение LightDM
     systemctl enable lightdm
@@ -452,5 +450,6 @@ prompt_partition_action() {
 }
 
 main "$@"
+
 
 
