@@ -300,24 +300,24 @@ print_error() { echo -e "${RED}[!]${NC} $1"; }
 
 # Basic system configuration
 print_status "Базовая настройка системы..."
-ln -sf /usr/share/zoneinfo/__TIMEZONE__ /etc/localtime
+ln -sf /usr/share/zoneinfo/TIMEZONE_PLACEHOLDER /etc/localtime
 hwclock --systohc
 
 # Locale configuration
 print_status "Настройка локали..."
-sed -i 's/^#\(__LOCALE__\)/\1/' /etc/locale.gen
+sed -i 's/^#\(LOCALE_PLACEHOLDER\)/\1/' /etc/locale.gen
 sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
 locale-gen
 
-echo "LANG=__LOCALE__" > /etc/locale.conf
-echo "KEYMAP=__KEYMAP__" > /etc/vconsole.conf
-echo "__HOSTNAME__" > /etc/hostname
+echo "LANG=LOCALE_PLACEHOLDER" > /etc/locale.conf
+echo "KEYMAP=KEYMAP_PLACEHOLDER" > /etc/vconsole.conf
+echo "HOSTNAME_PLACEHOLDER" > /etc/hostname
 
 # Hosts file
 cat > /etc/hosts << HOSTS_EOF
 127.0.0.1   localhost
 ::1         localhost
-127.0.1.1   __HOSTNAME__.localdomain __HOSTNAME__
+127.0.1.1   HOSTNAME_PLACEHOLDER.localdomain HOSTNAME_PLACEHOLDER
 HOSTS_EOF
 
 # User setup
@@ -327,9 +327,9 @@ until passwd; do
     print_warning "Попробуйте еще раз"
 done
 
-useradd -m -G wheel -s /bin/bash __USERNAME__
-echo "Установите пароль для пользователя __USERNAME__:"
-until passwd __USERNAME__; do
+useradd -m -G wheel -s /bin/bash USERNAME_PLACEHOLDER
+echo "Установите пароль для пользователя USERNAME_PLACEHOLDER:"
+until passwd USERNAME_PLACEHOLDER; do
     print_warning "Попробуйте еще раз"
 done
 
@@ -337,8 +337,8 @@ done
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
 # Install GPU drivers
-print_status "Установка драйверов для __GPU_TYPE__..."
-case "__GPU_TYPE__" in
+print_status "Установка драйверов для GPU_TYPE_PLACEHOLDER..."
+case "GPU_TYPE_PLACEHOLDER" in
     nvidia)
         pacman -S --noconfirm nvidia nvidia-utils nvidia-settings
         ;;
@@ -389,35 +389,35 @@ sed -i '/builder ALL=(ALL) NOPASSWD: ALL/d' /etc/sudoers
 
 # Install additional AUR packages as regular user
 print_status "Установка дополнительных пакетов..."
-sudo -u __USERNAME__ yay -S --noconfirm visual-studio-code-bin discord
+sudo -u USERNAME_PLACEHOLDER yay -S --noconfirm visual-studio-code-bin discord
 
 # Clone and setup configuration
 print_status "Установка конфигурации AvantParker..."
-cd /home/__USERNAME__
-sudo -u __USERNAME__ git clone __CONFIG_REPO__ avantparker-config
+cd /home/USERNAME_PLACEHOLDER
+sudo -u USERNAME_PLACEHOLDER git clone CONFIG_REPO_PLACEHOLDER avantparker-config
 
 # Copy configuration files
 print_status "Копирование конфигурационных файлов..."
 configs=("hypr" "waybar" "rofi" "kitty" "dunst" "fastfetch" "zathura" "picom")
 for config in "${configs[@]}"; do
-    if [ -d "/home/__USERNAME__/avantparker-config/$config" ]; then
-        sudo -u __USERNAME__ mkdir -p "/home/__USERNAME__/.config/$config"
-        sudo -u __USERNAME__ cp -r "/home/__USERNAME__/avantparker-config/$config/"* "/home/__USERNAME__/.config/$config/" 2>/dev/null || true
+    if [ -d "/home/USERNAME_PLACEHOLDER/avantparker-config/$config" ]; then
+        sudo -u USERNAME_PLACEHOLDER mkdir -p "/home/USERNAME_PLACEHOLDER/.config/$config"
+        sudo -u USERNAME_PLACEHOLDER cp -r "/home/USERNAME_PLACEHOLDER/avantparker-config/$config/"* "/home/USERNAME_PLACEHOLDER/.config/$config/" 2>/dev/null || true
     fi
 done
 
 # Copy dotfiles
-if [ -f "/home/__USERNAME__/avantparker-config/.zshrc" ]; then
-    sudo -u __USERNAME__ cp "/home/__USERNAME__/avantparker-config/.zshrc" "/home/__USERNAME__/"
+if [ -f "/home/USERNAME_PLACEHOLDER/avantparker-config/.zshrc" ]; then
+    sudo -u USERNAME_PLACEHOLDER cp "/home/USERNAME_PLACEHOLDER/avantparker-config/.zshrc" "/home/USERNAME_PLACEHOLDER/"
 fi
 
 # Setup Zsh
 print_status "Настройка Zsh..."
 # Install oh-my-zsh without changing shell immediately
-sudo -u __USERNAME__ sh -c "RUNZSH=no sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
+sudo -u USERNAME_PLACEHOLDER sh -c "RUNZSH=no sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
 
 # Change shell to zsh
-chsh -s /bin/zsh __USERNAME__
+chsh -s /bin/zsh USERNAME_PLACEHOLDER
 
 # Enable services
 print_status "Включение служб..."
@@ -426,8 +426,8 @@ systemctl enable bluetooth
 systemctl enable pipewire pipewire-pulse
 
 # Create desktop entry for Hyprland
-mkdir -p /home/__USERNAME__/.local/share/wayland-sessions
-cat > /home/__USERNAME__/.local/share/wayland-sessions/hyprland.desktop << DESKTOP_EOF
+mkdir -p /home/USERNAME_PLACEHOLDER/.local/share/wayland-sessions
+cat > /home/USERNAME_PLACEHOLDER/.local/share/wayland-sessions/hyprland.desktop << DESKTOP_EOF
 [Desktop Entry]
 Name=Hyprland
 Comment=Hyprland Wayland compositor
@@ -436,19 +436,19 @@ Type=Application
 DESKTOP_EOF
 
 # Fix permissions
-chown -R __USERNAME__:__USERNAME__ /home/__USERNAME__
+chown -R USERNAME_PLACEHOLDER:USERNAME_PLACEHOLDER /home/USERNAME_PLACEHOLDER
 
 print_status "Настройка в chroot завершена!"
 EOF
 
-    # Replace placeholder variables in the script
-    sed -i "s/__HOSTNAME__/$HOSTNAME/g" "$script_path"
-    sed -i "s/__USERNAME__/$USERNAME/g" "$script_path"
-    sed -i "s/__TIMEZONE__/$TIMEZONE/g" "$script_path"
-    sed -i "s/__LOCALE__/$LOCALE/g" "$script_path"
-    sed -i "s/__KEYMAP__/$KEYMAP/g" "$script_path"
-    sed -i "s/__GPU_TYPE__/$GPU_TYPE/g" "$script_path"
-    sed -i "s|__CONFIG_REPO__|$CONFIG_REPO|g" "$script_path"
+    # Replace placeholder variables in the script using different delimiters
+    sed -i "s|TIMEZONE_PLACEHOLDER|$TIMEZONE|g" "$script_path"
+    sed -i "s|LOCALE_PLACEHOLDER|$LOCALE|g" "$script_path"
+    sed -i "s|KEYMAP_PLACEHOLDER|$KEYMAP|g" "$script_path"
+    sed -i "s|HOSTNAME_PLACEHOLDER|$HOSTNAME|g" "$script_path"
+    sed -i "s|USERNAME_PLACEHOLDER|$USERNAME|g" "$script_path"
+    sed -i "s|GPU_TYPE_PLACEHOLDER|$GPU_TYPE|g" "$script_path"
+    sed -i "s|CONFIG_REPO_PLACEHOLDER|$CONFIG_REPO|g" "$script_path"
     
     chmod +x "$script_path"
 }
