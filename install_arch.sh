@@ -243,25 +243,15 @@ detect_microcode() {
     fi
 }
 
-# Configure mirrors using rate-mirrors (run before chroot)
+# Configure mirrors using reflector (safe alternative to rate-mirrors)
 configure_mirrors() {
-    print_status "Настройка зеркал с помощью rate-mirrors..."
+    print_status "Настройка зеркал с помощью reflector..."
     
-    # Install rate-mirrors in live environment
-    if ! command -v rate-mirrors &> /dev/null; then
-        print_status "Установка rate-mirrors в live-окружении..."
-        cd /tmp
-        git clone https://aur.archlinux.org/rate-mirrors-bin.git
-        cd rate-mirrors-bin
-        makepkg -si --noconfirm
-        cd /
-    fi
+    # Install reflector
+    pacman -Sy --noconfirm reflector
     
-    # Configure mirrors
-    export TMPFILE="$(mktemp)"
-    rate-mirrors --save="$TMPFILE" arch --max-delay=43200
-    cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
-    mv "$TMPFILE" /etc/pacman.d/mirrorlist
+    # Configure mirrors for Russia
+    reflector --country Russia --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
     
     print_status "Обновление базы пакетов с новыми зеркалами..."
     pacman -Syy
@@ -307,15 +297,6 @@ NC='\033[0m'
 print_status() { echo -e "${GREEN}[+]${NC} $1"; }
 print_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
 print_error() { echo -e "${RED}[!]${NC} $1"; }
-
-# Configuration (these will be replaced by sed)
-HOSTNAME="ARCH-HYPRLAND"
-USERNAME="kyon"
-LOCALE="ru_RU.UTF-8"
-KEYMAP="ru"
-TIMEZONE="Europe/Moscow"
-GPU_TYPE="intel"
-CONFIG_REPO="https://github.com/AvantParker/config.git"
 
 # Basic system configuration
 print_status "Базовая настройка системы..."
@@ -383,16 +364,30 @@ pacman -S --noconfirm hyprland waybar rofi dunst kitty thunar \
     gnome-themes-extra xdg-desktop-portal-hyprland \
     zsh starship bat exa fzf ripgrep fd
 
-# Install yay AUR helper
+# Install yay AUR helper as regular user
 print_status "Установка yay..."
-cd /tmp
-sudo -u $USERNAME git clone https://aur.archlinux.org/yay.git
-cd yay
-sudo -u $USERNAME makepkg -si --noconfirm
-cd /
-rm -rf /tmp/yay
+# First install dependencies
+pacman -S --noconfirm go base-devel git
 
-# Install additional AUR packages
+# Create a temporary user for building AUR packages
+useradd -m -s /bin/bash builder
+echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# Install yay as builder user
+sudo -u builder bash << BUILDER_EOF
+cd /tmp
+git clone https://aur.archlinux.org/yay-bin.git
+cd yay-bin
+makepkg -si --noconfirm
+cd /
+rm -rf /tmp/yay-bin
+BUILDER_EOF
+
+# Remove temporary user
+userdel -r builder
+sed -i '/builder ALL=(ALL) NOPASSWD: ALL/d' /etc/sudoers
+
+# Install additional AUR packages as regular user
 print_status "Установка дополнительных пакетов..."
 sudo -u $USERNAME yay -S --noconfirm visual-studio-code-bin discord
 
@@ -447,11 +442,12 @@ print_status "Настройка в chroot завершена!"
 EOF
 
     # Replace variables in the script
-    sed -i "s/ARCH-HYPRLAND/$HOSTNAME/g" "$script_path"
-    sed -i "s/kyon/$USERNAME/g" "$script_path"
-    sed -i "s|Europe/Moscow|$TIMEZONE|g" "$script_path"
-    sed -i "s/ru_RU.UTF-8/$LOCALE/g" "$script_path"
-    sed -i "s/intel/$GPU_TYPE/g" "$script_path"
+    sed -i "s/\\\$HOSTNAME/$HOSTNAME/g" "$script_path"
+    sed -i "s/\\\$USERNAME/$USERNAME/g" "$script_path"
+    sed -i "s|\\\$TIMEZONE|$TIMEZONE|g" "$script_path"
+    sed -i "s/\\\$LOCALE/$LOCALE/g" "$script_path"
+    sed -i "s/\\\$GPU_TYPE/$GPU_TYPE/g" "$script_path"
+    sed -i "s|\\\$CONFIG_REPO|$CONFIG_REPO|g" "$script_path"
     
     chmod +x "$script_path"
 }
@@ -504,7 +500,7 @@ main() {
     prompt_partition_action
     mount_partitions
     enable_ntp
-    configure_mirrors  # Move mirrors configuration here
+    configure_mirrors
     install_base_system
     generate_fstab
     create_chroot_script
