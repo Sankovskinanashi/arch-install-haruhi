@@ -280,6 +280,228 @@ generate_fstab() {
     genfstab -U /mnt >> /mnt/etc/fstab
 }
 
+# Download and extract config without git
+download_config() {
+    local config_url="https://github.com/AvantParker/config/archive/refs/heads/main.tar.gz"
+    local temp_dir="/tmp/config-download"
+    
+    print_status "Скачивание конфигурации AvantParker..."
+    
+    # Create temp directory
+    mkdir -p "$temp_dir"
+    cd "$temp_dir"
+    
+    # Download and extract config
+    curl -L -o config.tar.gz "$config_url"
+    tar -xzf config.tar.gz
+    
+    # Copy config files to user's home
+    if [[ -d "config-main" ]]; then
+        print_status "Копирование конфигурационных файлов..."
+        
+        # Create config directories
+        mkdir -p "/home/$USERNAME/.config"
+        
+        # Copy essential configs
+        local configs=("hypr" "waybar" "rofi" "kitty" "dunst" "fastfetch" "zathura" "picom")
+        for config in "${configs[@]}"; do
+            if [[ -d "config-main/$config" ]]; then
+                cp -r "config-main/$config" "/home/$USERNAME/.config/"
+            fi
+        done
+        
+        # Copy dotfiles
+        if [[ -f "config-main/.zshrc" ]]; then
+            cp "config-main/.zshrc" "/home/$USERNAME/"
+        fi
+        
+        print_status "Конфигурация успешно установлена"
+    else
+        print_warning "Не удалось найти конфигурационные файлы"
+    fi
+    
+    # Cleanup
+    cd /
+    rm -rf "$temp_dir"
+}
+
+# Create minimal config if download fails
+create_minimal_config() {
+    print_status "Создание минимальной конфигурации Hyprland..."
+    
+    # Create hyprland config directory
+    mkdir -p "/home/$USERNAME/.config/hypr"
+    
+    # Create basic hyprland config
+    cat > "/home/$USERNAME/.config/hypr/hyprland.conf" << 'EOF'
+# Basic Hyprland configuration
+monitor=,preferred,auto,auto
+
+exec-once = waybar &
+exec-once = dunst &
+exec-once = swaybg -i /usr/share/backgrounds/archlinux/arch-wallpaper.jpg
+
+input {
+    kb_layout = ru
+    follow_mouse = 1
+    touchpad {
+        natural_scroll = no
+    }
+}
+
+general {
+    gaps_in = 5
+    gaps_out = 10
+    border_size = 2
+    col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
+    col.inactive_border = rgba(595959aa)
+    layout = dwindle
+}
+
+decoration {
+    rounding = 10
+    blur {
+        enabled = true
+        size = 3
+        passes = 1
+    }
+    drop_shadow = yes
+    shadow_range = 4
+    shadow_render_power = 3
+    col.shadow = rgba(1a1a1aee)
+}
+
+animations {
+    enabled = yes
+    bezier = myBezier, 0.05, 0.9, 0.1, 1.05
+    animation = windows, 1, 7, myBezier
+    animation = windowsOut, 1, 7, default, popin 80%
+    animation = border, 1, 10, default
+    animation = fade, 1, 7, default
+    animation = workspaces, 1, 6, default
+}
+
+dwindle {
+    pseudotile = yes
+    preserve_split = yes
+}
+
+master {
+    new_is_master = true
+}
+
+gestures {
+    workspace_swipe = off
+}
+
+# Keybindings
+bind = SUPER, RETURN, exec, kitty
+bind = SUPER, Q, killactive,
+bind = SUPER, M, exit,
+bind = SUPER, E, exec, thunar
+bind = SUPER, D, exec, rofi -show drun
+bind = SUPER, F, exec, firefox
+
+bind = SUPER, left, movefocus, l
+bind = SUPER, right, movefocus, r
+bind = SUPER, up, movefocus, u
+bind = SUPER, down, movefocus, d
+
+bind = SUPER, 1, workspace, 1
+bind = SUPER, 2, workspace, 2
+bind = SUPER, 3, workspace, 3
+bind = SUPER, 4, workspace, 4
+bind = SUPER, 5, workspace, 5
+
+bind = SUPER SHIFT, 1, movetoworkspace, 1
+bind = SUPER SHIFT, 2, movetoworkspace, 2
+bind = SUPER SHIFT, 3, movetoworkspace, 3
+bind = SUPER SHIFT, 4, movetoworkspace, 4
+bind = SUPER SHIFT, 5, movetoworkspace, 5
+
+bind = , PRINT, exec, grim -g "$(slurp)" - | wl-copy
+bind = SUPER, PRINT, exec, grim - | wl-copy
+EOF
+
+    # Create basic waybar config
+    mkdir -p "/home/$USERNAME/.config/waybar"
+    cat > "/home/$USERNAME/.config/waybar/config" << 'EOF'
+{
+    "layer": "top",
+    "position": "top",
+    "height": 30,
+    "spacing": 4,
+    "modules-left": ["hyprland/workspaces"],
+    "modules-center": ["clock"],
+    "modules-right": ["cpu", "memory", "battery", "pulseaudio", "network", "tray"],
+    "hyprland/workspaces": {
+        "disable-scroll": true,
+        "all-outputs": true,
+        "format": "{name}"
+    },
+    "clock": {
+        "format": "{:%H:%M}",
+        "format-alt": "{:%Y-%m-%d}"
+    },
+    "cpu": {
+        "format": "{usage}% ",
+        "tooltip": false
+    },
+    "memory": {
+        "format": "{}% "
+    },
+    "battery": {
+        "format": "{capacity}% {icon}",
+        "format-icons": ["", "", "", "", ""]
+    },
+    "network": {
+        "format-wifi": "{essid} ({signalStrength}%)",
+        "format-ethernet": "{ifname}",
+        "format-disconnected": "Disconnected"
+    },
+    "pulseaudio": {
+        "format": "{volume}% {icon}",
+        "format-muted": "Muted",
+        "format-icons": ["", "", ""]
+    }
+}
+EOF
+
+    cat > "/home/$USERNAME/.config/waybar/style.css" << 'EOF'
+* {
+    border: none;
+    border-radius: 0;
+    font-family: "JetBrains Mono Nerd Font";
+    font-size: 12px;
+    min-height: 0;
+}
+
+window#waybar {
+    background: rgba(40, 40, 40, 0.9);
+    color: white;
+}
+
+#workspaces button {
+    padding: 0 5px;
+    background: transparent;
+    color: white;
+    border-top: 2px solid transparent;
+}
+
+#workspaces button.focused {
+    background: #64727D;
+    border-top: 2px solid white;
+}
+
+#clock, #cpu, #memory, #battery, #pulseaudio, #network {
+    padding: 0 8px;
+    margin: 0 2px;
+}
+EOF
+
+    print_status "Минимальная конфигурация создана"
+}
+
 # Create chroot installation script
 create_chroot_script() {
     local script_path="/mnt/root/chroot_script.sh"
@@ -305,8 +527,8 @@ hwclock --systohc
 
 # Locale configuration
 print_status "Настройка локали..."
-sed -i 's/^#\(LOCALE_PLACEHOLDER\)/\1/' /etc/locale.gen
-sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
+sed -i 's|^#\(LOCALE_PLACEHOLDER\)|\1|' /etc/locale.gen
+sed -i 's|^#\(en_US.UTF-8\)|\1|' /etc/locale.gen
 locale-gen
 
 echo "LANG=LOCALE_PLACEHOLDER" > /etc/locale.conf
@@ -362,61 +584,78 @@ pacman -S --noconfirm hyprland waybar rofi dunst kitty thunar \
     ttf-firacode-nerd ttf-jetbrains-mono-nerd noto-fonts \
     noto-fonts-emoji noto-fonts-cjk papirus-icon-theme \
     gnome-themes-extra xdg-desktop-portal-hyprland \
-    zsh starship bat exa fzf ripgrep fd
+    zsh starship bat exa fzf ripgrep fd curl
 
-# Install yay AUR helper as regular user
-print_status "Установка yay..."
-# First install dependencies
-pacman -S --noconfirm go base-devel git
-
-# Create a temporary user for building AUR packages
-useradd -m -s /bin/bash builder
-echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-
-# Install yay as builder user
-sudo -u builder bash << BUILDER_EOF
-cd /tmp
-git clone https://aur.archlinux.org/yay-bin.git
-cd yay-bin
-makepkg -si --noconfirm
-cd /
-rm -rf /tmp/yay-bin
-BUILDER_EOF
-
-# Remove temporary user
-userdel -r builder
-sed -i '/builder ALL=(ALL) NOPASSWD: ALL/d' /etc/sudoers
-
-# Install additional AUR packages as regular user
-print_status "Установка дополнительных пакетов..."
-sudo -u USERNAME_PLACEHOLDER yay -S --noconfirm visual-studio-code-bin discord
-
-# Clone and setup configuration
-print_status "Установка конфигурации AvantParker..."
-cd /home/USERNAME_PLACEHOLDER
-sudo -u USERNAME_PLACEHOLDER git clone CONFIG_REPO_PLACEHOLDER avantparker-config
-
-# Copy configuration files
-print_status "Копирование конфигурационных файлов..."
-configs=("hypr" "waybar" "rofi" "kitty" "dunst" "fastfetch" "zathura" "picom")
-for config in "${configs[@]}"; do
-    if [ -d "/home/USERNAME_PLACEHOLDER/avantparker-config/$config" ]; then
-        sudo -u USERNAME_PLACEHOLDER mkdir -p "/home/USERNAME_PLACEHOLDER/.config/$config"
-        sudo -u USERNAME_PLACEHOLDER cp -r "/home/USERNAME_PLACEHOLDER/avantparker-config/$config/"* "/home/USERNAME_PLACEHOLDER/.config/$config/" 2>/dev/null || true
+# Try to download config, fallback to minimal config
+download_config() {
+    print_status "Попытка скачать конфигурацию..."
+    local config_url="https://github.com/AvantParker/config/archive/refs/heads/main.tar.gz"
+    local temp_dir="/tmp/config-download"
+    
+    mkdir -p "$temp_dir"
+    cd "$temp_dir"
+    
+    if curl -L -o config.tar.gz "$config_url" && tar -xzf config.tar.gz && [[ -d "config-main" ]]; then
+        print_status "Копирование конфигурационных файлов..."
+        mkdir -p "/home/USERNAME_PLACEHOLDER/.config"
+        
+        configs=("hypr" "waybar" "rofi" "kitty" "dunst" "fastfetch" "zathura" "picom")
+        for config in "${configs[@]}"; do
+            if [[ -d "config-main/$config" ]]; then
+                cp -r "config-main/$config" "/home/USERNAME_PLACEHOLDER/.config/"
+            fi
+        done
+        
+        if [[ -f "config-main/.zshrc" ]]; then
+            cp "config-main/.zshrc" "/home/USERNAME_PLACEHOLDER/"
+        fi
+        
+        print_status "Конфигурация успешно установлена"
+    else
+        print_warning "Не удалось скачать конфигурацию, создаем базовую..."
+        create_minimal_config
     fi
-done
+    
+    cd /
+    rm -rf "$temp_dir"
+}
 
-# Copy dotfiles
-if [ -f "/home/USERNAME_PLACEHOLDER/avantparker-config/.zshrc" ]; then
-    sudo -u USERNAME_PLACEHOLDER cp "/home/USERNAME_PLACEHOLDER/avantparker-config/.zshrc" "/home/USERNAME_PLACEHOLDER/"
-fi
+# Create minimal config if download fails
+create_minimal_config() {
+    print_status "Создание минимальной конфигурации..."
+    
+    mkdir -p "/home/USERNAME_PLACEHOLDER/.config/hypr"
+    cat > "/home/USERNAME_PLACEHOLDER/.config/hypr/hyprland.conf" << 'HYPR_EOF'
+monitor=,preferred,auto,auto
+exec-once = waybar &
+exec-once = dunst &
+input { kb_layout = ru }
+general { gaps_in = 5, gaps_out = 10 }
+bind = SUPER, RETURN, exec, kitty
+bind = SUPER, Q, killactive
+bind = SUPER, D, exec, rofi -show drun
+bind = SUPER, F, exec, firefox
+HYPR_EOF
+    
+    mkdir -p "/home/USERNAME_PLACEHOLDER/.config/waybar"
+    cat > "/home/USERNAME_PLACEHOLDER/.config/waybar/config" << 'WAYBAR_EOF'
+{
+    "layer": "top", "position": "top",
+    "modules-left": ["hyprland/workspaces"],
+    "modules-center": ["clock"],
+    "modules-right": ["cpu", "memory", "pulseaudio", "network"]
+}
+WAYBAR_EOF
+
+    print_status "Минимальная конфигурация создана"
+}
+
+# Download or create config
+download_config
 
 # Setup Zsh
 print_status "Настройка Zsh..."
-# Install oh-my-zsh without changing shell immediately
 sudo -u USERNAME_PLACEHOLDER sh -c "RUNZSH=no sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
-
-# Change shell to zsh
 chsh -s /bin/zsh USERNAME_PLACEHOLDER
 
 # Enable services
@@ -426,8 +665,8 @@ systemctl enable bluetooth
 systemctl enable pipewire pipewire-pulse
 
 # Create desktop entry for Hyprland
-mkdir -p /home/USERNAME_PLACEHOLDER/.local/share/wayland-sessions
-cat > /home/USERNAME_PLACEHOLDER/.local/share/wayland-sessions/hyprland.desktop << DESKTOP_EOF
+mkdir -p "/home/USERNAME_PLACEHOLDER/.local/share/wayland-sessions"
+cat > "/home/USERNAME_PLACEHOLDER/.local/share/wayland-sessions/hyprland.desktop" << DESKTOP_EOF
 [Desktop Entry]
 Name=Hyprland
 Comment=Hyprland Wayland compositor
@@ -436,7 +675,7 @@ Type=Application
 DESKTOP_EOF
 
 # Fix permissions
-chown -R USERNAME_PLACEHOLDER:USERNAME_PLACEHOLDER /home/USERNAME_PLACEHOLDER
+chown -R USERNAME_PLACEHOLDER:USERNAME_PLACEHOLDER "/home/USERNAME_PLACEHOLDER"
 
 print_status "Настройка в chroot завершена!"
 EOF
@@ -448,7 +687,6 @@ EOF
     sed -i "s|HOSTNAME_PLACEHOLDER|$HOSTNAME|g" "$script_path"
     sed -i "s|USERNAME_PLACEHOLDER|$USERNAME|g" "$script_path"
     sed -i "s|GPU_TYPE_PLACEHOLDER|$GPU_TYPE|g" "$script_path"
-    sed -i "s|CONFIG_REPO_PLACEHOLDER|$CONFIG_REPO|g" "$script_path"
     
     chmod +x "$script_path"
 }
