@@ -341,11 +341,13 @@ else
         pipewire pipewire-alsa pipewire-pulse wireplumber
 fi
 
-# Создание базового конфига i3
+# Создание базового конфига i3 (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 printf "[+] Создание конфигурации i3...\n"
 mkdir -p /home/kyon/.config/i3
-cat > /home/kyon/.config/i3/config << I3CONFIG
+cat > /home/kyon/.config/i3/config << 'I3CONFIG'
 # i3 config file (v4)
+set $mod Mod4
+
 font pango:DejaVu Sans Mono 9
 
 # Use Mouse+$mod to drag floating windows to their wanted position
