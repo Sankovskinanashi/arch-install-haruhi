@@ -340,7 +340,7 @@ if [ "$INSTALL_TYPE" = "full" ]; then
 
     # Установка AUR пакетов
     printf "[+] Установка AUR пакетов...\n"
-    runuser -u kyon -- yay -S --noconfirm --noprovides --answeredit None --answerclean None --answerdiff None \
+    runuser -u kyon -- yay -S --noconfirm --answeredit None --answerclean None --answerdiff None \
         visual-studio-code-bin \
         discord
 
@@ -453,3 +453,4 @@ prompt_partition_action() {
 }
 
 main "$@"
+
