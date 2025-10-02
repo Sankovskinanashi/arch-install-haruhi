@@ -48,7 +48,6 @@ select_install_type() {
             ;;
     esac
     
-    # Сохраняем тип установки в файл для передачи в chroot
     echo "$INSTALL_TYPE" > /tmp/install_type
 }
 
@@ -56,8 +55,6 @@ check_internet() {
     printf "[*] Проверка интернет-соединения...\n"
     if ! ping -c 1 -W 3 archlinux.org &>/dev/null; then
         printf "[!] Нет доступа к интернету. Настройте подключение и перезапустите установку.\n" >&2
-        printf "[i] Подключение Wi-Fi: iwctl\n" >&2
-        printf "[i] Подключение Ethernet: systemctl start dhcpcd или ip link set <интерфейс> up\n" >&2
         exit 1
     fi
     printf "[+] Интернет доступен.\n"
@@ -143,16 +140,13 @@ wipe_and_create_partitions() {
     printf "\n[+] Созданные разделы:\n"
     show_disk_layout
 
-    # Автоматическое определение созданных разделов
     EFI_PART=""
     ROOT_PART=""
     
-    # Для NVMe дисков (например /dev/nvme0n1p1)
     if [[ "$DISK" =~ nvme ]]; then
         EFI_PART="${DISK}p1"
         ROOT_PART="${DISK}p2"
     else
-        # Для SATA дисков (например /dev/sda1)
         EFI_PART="${DISK}1"
         ROOT_PART="${DISK}2"
     fi
@@ -222,9 +216,6 @@ mount_partitions() {
     printf "  - EFI раздел %s -> /mnt/boot/efi\n" "$EFI_PART"
     mkdir -p /mnt/boot/efi
     mount "$EFI_PART" /mnt/boot/efi
-    
-    printf "[+] Текущая структура монтирования:\n"
-    mount | grep "/mnt"
 }
 
 enable_ntp() {
@@ -240,28 +231,23 @@ install_base_system() {
     fi
 
     printf "[+] Установка базовой системы...\n"
-    printf "[!] Устанавливаемые пакеты: %s\n" "$packages"
     pacstrap /mnt $packages
 }
 
 generate_fstab() {
     printf "[+] Генерация fstab...\n"
     genfstab -U /mnt >> /mnt/etc/fstab
-    printf "[+] Содержимое fstab:\n"
-    cat /mnt/etc/fstab
 }
 
 create_chroot_script() {
     local script_path="/mnt/root/chroot_script.sh"
     
-    # Копируем файл с типом установки в chroot
     cp /tmp/install_type /mnt/root/install_type
     
     cat > "$script_path" <<'EOF'
 #!/bin/bash
 set -euo pipefail
 
-# Читаем тип установки из файла
 INSTALL_TYPE=$(cat /root/install_type)
 echo "[+] Тип установки: $INSTALL_TYPE"
 
@@ -298,31 +284,32 @@ echo "kyon ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 # Настройка pacman
 sed -i 's/^#ParallelDownloads/ParallelDownloads/' /etc/pacman.conf
 sed -i 's/^#Color/Color/' /etc/pacman.conf
-
-# Включение multilib репозитория (для 32-битных приложений)
 sed -i '/^#\[multilib\]/,+1 s/^#//' /etc/pacman.conf
 
-# Обновление базы пакетов
+# Обновление системы
 pacman -Syu --noconfirm
 
-# Установка i3 и зависимостей
-printf "[+] Установка Xorg и i3...\n"
-pacman -S --noconfirm xorg xorg-xinit xorg-server i3-wm i3status i3lock dmenu alacritty
+# КРИТИЧЕСКИ ВАЖНЫЕ ПАКЕТЫ ДЛЯ i3
+printf "[+] Установка критически важных пакетов для i3...\n"
+pacman -S --noconfirm \
+    xorg-server xorg-xinit xorg-xrandr xorg-xsetroot \
+    xorg-fonts-misc ttf-dejavu ttf-liberation noto-fonts \
+    i3-wm i3status i3lock dmenu \
+    xterm alacritty \
+    firefox \
+    network-manager-applet \
+    lightdm lightdm-gtk-greeter
 
 if [ "$INSTALL_TYPE" = "full" ]; then
     printf "[+] Установка дополнительных пакетов...\n"
     pacman -S --noconfirm \
-        firefox \
         thunar thunar-archive-plugin file-roller \
         ristretto \
         pavucontrol \
         papirus-icon-theme \
-        lightdm lightdm-gtk-greeter \
         pipewire pipewire-alsa pipewire-pulse wireplumber \
-        network-manager-applet \
         git htop \
-        noto-fonts noto-fonts-cjk noto-fonts-emoji \
-        ttf-dejavu ttf-liberation
+        noto-fonts-cjk noto-fonts-emoji
 
     # Установка Go для сборки yay
     printf "[+] Установка Go...\n"
@@ -346,52 +333,164 @@ if [ "$INSTALL_TYPE" = "full" ]; then
     # Включение LightDM
     systemctl enable lightdm
 else
-    # Минимальная установка - только базовый i3
-    printf "[+] Минимальная установка - только i3 и необходимые пакеты\n"
+    # Минимальная установка
+    printf "[+] Минимальная установка...\n"
     pacman -S --noconfirm \
-        firefox \
-        alacritty \
-        network-manager-applet \
-        noto-fonts
+        thunar \
+        pavucontrol \
+        pipewire pipewire-alsa pipewire-pulse wireplumber
 fi
 
-# Удаление временной настройки sudo без пароля
-sed -i "/kyon ALL=(ALL) NOPASSWD: ALL/d" /etc/sudoers
+# Создание базового конфига i3
+printf "[+] Создание конфигурации i3...\n"
+mkdir -p /home/kyon/.config/i3
+cat > /home/kyon/.config/i3/config << I3CONFIG
+# i3 config file (v4)
+font pango:DejaVu Sans Mono 9
 
-# Настройка обычного sudo с паролем
-echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
+# Use Mouse+$mod to drag floating windows to their wanted position
+floating_modifier $mod
 
-# Настройка автозапуска i3
+# start a terminal
+bindsym $mod+Return exec i3-sensible-terminal
+bindsym $mod+Shift+Return exec xterm
+
+# start dmenu
+bindsym $mod+d exec dmenu_run
+
+# kill focused window
+bindsym $mod+Shift+q kill
+
+# start program launcher
+bindsym $mod+p exec dmenu_run
+
+# change focus
+bindsym $mod+j focus left
+bindsym $mod+k focus down
+bindsym $mod+l focus up
+bindsym $mod+semicolon focus right
+
+# move focused window
+bindsym $mod+Shift+j move left
+bindsym $mod+Shift+k move down
+bindsym $mod+Shift+l move up
+bindsym $mod+Shift+semicolon move right
+
+# split in horizontal orientation
+bindsym $mod+h split h
+
+# split in vertical orientation
+bindsym $mod+v split v
+
+# enter fullscreen mode for the focused container
+bindsym $mod+f fullscreen toggle
+
+# change container layout (stacked, tabbed, toggle split)
+bindsym $mod+s layout stacking
+bindsym $mod+w layout tabbed
+bindsym $mod+e layout toggle split
+
+# toggle tiling / floating
+bindsym $mod+Shift+space floating toggle
+
+# change focus between tiling / floating windows
+bindsym $mod+space focus mode_toggle
+
+# focus the parent container
+bindsym $mod+a focus parent
+
+# focus the child container
+bindsym $mod+z focus child
+
+# switch to workspace
+bindsym $mod+1 workspace 1
+bindsym $mod+2 workspace 2
+bindsym $mod+3 workspace 3
+bindsym $mod+4 workspace 4
+bindsym $mod+5 workspace 5
+bindsym $mod+6 workspace 6
+bindsym $mod+7 workspace 7
+bindsym $mod+8 workspace 8
+bindsym $mod+9 workspace 9
+bindsym $mod+0 workspace 10
+
+# move focused container to workspace
+bindsym $mod+Shift+1 move container to workspace 1
+bindsym $mod+Shift+2 move container to workspace 2
+bindsym $mod+Shift+3 move container to workspace 3
+bindsym $mod+Shift+4 move container to workspace 4
+bindsym $mod+Shift+5 move container to workspace 5
+bindsym $mod+Shift+6 move container to workspace 6
+bindsym $mod+Shift+7 move container to workspace 7
+bindsym $mod+Shift+8 move container to workspace 8
+bindsym $mod+Shift+9 move container to workspace 9
+bindsym $mod+Shift+0 move container to workspace 10
+
+# reload the configuration file
+bindsym $mod+Shift+c reload
+
+# restart i3 inplace (preserves your layout/session, can be used to upgrade i3)
+bindsym $mod+Shift+r restart
+
+# exit i3 (logs you out of your X session)
+bindsym $mod+Shift+e exec "i3-nagbar -t warning -m 'You pressed the exit shortcut. Do you really want to exit i3? This will end your X session.' -b 'Yes, exit i3' 'i3-msg exit'"
+
+# resize window (you can also use the mouse for that)
+mode "resize" {
+        bindsym j resize shrink width 10 px or 10 ppt
+        bindsym k resize grow height 10 px or 10 ppt
+        bindsym l resize shrink height 10 px or 10 ppt
+        bindsym semicolon resize grow width 10 px or 10 ppt
+
+        bindsym Return mode "default"
+        bindsym Escape mode "default"
+}
+bindsym $mod+r mode "resize"
+
+# Start specific programs
+bindsym $mod+Shift+f exec firefox
+
+# Status bar
+bar {
+        status_command i3status
+}
+I3CONFIG
+
+# Установка прав на конфиг
+chown -R kyon:kyon /home/kyon/.config
+
+# Создание .xinitrc для минимальной установки
 if [ "$INSTALL_TYPE" = "minimal" ]; then
-    printf "[i] Для запуска i3 добавьте 'exec i3' в ~/.xinitrc и используйте 'startx'\n"
+    printf "[i] Для минимальной установки создаем .xinitrc\n"
+    cat > /home/kyon/.xinitrc << XINITRC
+#!/bin/sh
+exec i3
+XINITRC
+    chown kyon:kyon /home/kyon/.xinitrc
+    chmod +x /home/kyon/.xinitrc
 fi
 
-# Создание конфига i3 для пользователя
-runuser -u kyon -- mkdir -p /home/kyon/.config/i3
-runuser -u kyon -- bash -c 'if [ -f /etc/i3/config ]; then cp /etc/i3/config /home/kyon/.config/i3/config; fi'
+# Удаление временной настройки sudo
+sed -i "/kyon ALL=(ALL) NOPASSWD: ALL/d" /etc/sudoers
+echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
 # Включение NetworkManager
 systemctl enable NetworkManager
-
-# Настройка .xinitrc для минимальной установки
-if [ "$INSTALL_TYPE" = "minimal" ]; then
-    runuser -u kyon -- bash -c 'echo "exec i3" > /home/kyon/.xinitrc'
-    runuser -u kyon -- chmod +x /home/kyon/.xinitrc
-fi
 
 # Удаляем временный файл
 rm -f /root/install_type
 
 printf "\n[✓] Установка завершена!\n"
+printf "[i] Горячие клавиши i3:\n"
+printf "    ⊞ Win + Enter - терминал\n"
+printf "    ⊞ Win + d - dmenu\n"
+printf "    ⊞ Win + 1-9 - переключение рабочих столов\n"
+printf "    ⊞ Win + Shift + q - закрыть окно\n"
 if [ "$INSTALL_TYPE" = "full" ]; then
     printf "[i] Система будет запускать i3 через LightDM\n"
 else
     printf "[i] Для запуска i3 выполните: startx\n"
 fi
-printf "[i] Не забудьте настроить i3 под свои нужды\n"
-printf "[i] При необходимости установите Flatpak приложения позже:\n"
-printf "    flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo\n"
-printf "    flatpak --user install -y flathub org.telegram.desktop md.obsidian.Obsidian com.spotify.Client\n"
 EOF
 
     chmod +x "$script_path"
@@ -407,7 +506,6 @@ install_grub() {
         printf "[+] UEFI режим обнаружен. Установка GRUB...\n"
         arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
         arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-        printf "[✓] GRUB установлен в %s\n" "$EFI_PART"
     else
         printf "[!] Система не в UEFI режиме. Установка невозможна.\n" >&2
         return 1
@@ -415,23 +513,11 @@ install_grub() {
 }
 
 cleanup_and_reboot() {
-    # Удаляем временный файл
     rm -f /tmp/install_type
-    
     printf "[+] Отмонтирование разделов...\n"
     umount -R /mnt
     printf "[✓] Установка завершена!\n"
-    printf "\n[i] Команды для перезагрузки:\n"
-    printf "    umount -R /mnt  # если не отмонтировалось\n"
-    printf "    reboot\n"
-    printf "\n[i] После перезагрузки:\n"
-    if [ "$INSTALL_TYPE" = "full" ]; then
-        printf "    - Система запустится в LightDM\n"
-        printf "    - Войдите под пользователем kyon\n"
-    else
-        printf "    - Войдите под пользователем kyon\n"
-        printf "    - Выполните: startx\n"
-    fi
+    printf "[i] Перезагрузите систему: reboot\n"
 }
 
 prompt_partition_action() {
