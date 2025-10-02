@@ -327,7 +327,7 @@ until passwd; do
     print_warning "Попробуйте еще раз"
 done
 
-useradd -m -G wheel -s /bin/bash USERNAME_PLACEHOLDER
+useradd -m -G wheel,audio,video,storage -s /bin/bash USERNAME_PLACEHOLDER
 echo "Установите пароль для пользователя USERNAME_PLACEHOLDER:"
 until passwd USERNAME_PLACEHOLDER; do
     print_warning "Попробуйте еще раз"
@@ -353,16 +353,23 @@ case "GPU_TYPE_PLACEHOLDER" in
         ;;
 esac
 
+# Install display manager (SDDM)
+print_status "Установка дисплейного менеджера SDDM..."
+pacman -S --noconfirm sddm sddm-kcm
+
 # Install Hyprland and essential packages
 print_status "Установка Hyprland и окружения..."
-pacman -S --noconfirm hyprland waybar rofi dunst kitty thunar \
-    firefox swaybg swaylock grim slurp wl-clipboard polkit-gnome \
-    networkmanager blueman pipewire pipewire-alsa pipewire-pulse \
+pacman -S --noconfirm hyprland xdg-desktop-portal-hyprland qt5-wayland qt6-wayland \
+    waybar rofi dunst kitty thunar firefox swaybg swaylock grim slurp wl-clipboard \
+    polkit-kde-agent networkmanager blueman pipewire pipewire-alsa pipewire-pulse \
     wireplumber brightnessctl fastfetch zathura picom \
     ttf-firacode-nerd ttf-jetbrains-mono-nerd noto-fonts \
     noto-fonts-emoji noto-fonts-cjk papirus-icon-theme \
-    gnome-themes-extra xdg-desktop-portal-hyprland \
-    zsh starship bat exa fzf ripgrep fd curl
+    gnome-themes-extra zsh starship bat exa fzf ripgrep fd curl
+
+# Add user to necessary groups
+print_status "Добавление пользователя в необходимые группы..."
+usermod -aG video,audio,storage,input USERNAME_PLACEHOLDER
 
 # Try to download config, fallback to minimal config
 download_config() {
@@ -413,9 +420,8 @@ monitor=,preferred,auto,auto
 
 exec-once = waybar &
 exec-once = dunst &
-exec-once = pipewire &
-exec-once = pipewire-pulse &
-exec-once = swaybg -i /usr/share/backgrounds/archlinux/arch-wallpaper.jpg
+exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec-once = systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 
 input {
     kb_layout = ru
@@ -497,6 +503,10 @@ bind = SUPER SHIFT, 5, movetoworkspace, 5
 
 bind = , PRINT, exec, grim -g "$(slurp)" - | wl-copy
 bind = SUPER, PRINT, exec, grim - | wl-copy
+
+# Auto-start important services
+exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec-once = systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 HYPR_EOF
 
     # Create basic waybar config
@@ -508,7 +518,7 @@ HYPR_EOF
     "spacing": 4,
     "modules-left": ["hyprland/workspaces"],
     "modules-center": ["clock"],
-    "modules-right": ["cpu", "memory", "battery", "pulseaudio", "network", "tray"],
+    "modules-right": ["cpu", "memory", "pulseaudio", "network", "tray"],
     "hyprland/workspaces": {
         "disable-scroll": true,
         "all-outputs": true,
@@ -524,10 +534,6 @@ HYPR_EOF
     },
     "memory": {
         "format": "{}% "
-    },
-    "battery": {
-        "format": "{capacity}% {icon}",
-        "format-icons": ["", "", "", "", ""]
     },
     "network": {
         "format-wifi": "{essid} ({signalStrength}%)",
@@ -585,39 +591,38 @@ print_status "Настройка Zsh..."
 sudo -u USERNAME_PLACEHOLDER sh -c "RUNZSH=no sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
 chsh -s /bin/zsh USERNAME_PLACEHOLDER
 
-# Enable services - CORRECTED: removed pipeline.service
+# Enable services
 print_status "Включение служб..."
 systemctl enable NetworkManager
 systemctl enable bluetooth
-# PipeWire runs as user service, no need to enable system services
+systemctl enable sddm
 
-# Create desktop entry for Hyprland
-mkdir -p "/home/USERNAME_PLACEHOLDER/.local/share/wayland-sessions"
-cat > "/home/USERNAME_PLACEHOLDER/.local/share/wayland-sessions/hyprland.desktop" << DESKTOP_EOF
+# Fix for SDDM and Hyprland
+print_status "Настройка SDDM для работы с Hyprland..."
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/hyprland.conf << SDDM_EOF
+[Autologin]
+# Automatic login
+Session=hyprland.desktop
+
+[Theme]
+# Current theme name
+Current=breeze
+
+[Users]
+MaximumUid=65000
+MinimumUid=1000
+SDDM_EOF
+
+# Create desktop entry for Hyprland in system directory
+mkdir -p /usr/share/wayland-sessions
+cat > /usr/share/wayland-sessions/hyprland.desktop << DESKTOP_EOF
 [Desktop Entry]
 Name=Hyprland
 Comment=Hyprland Wayland compositor
 Exec=Hyprland
 Type=Application
 DESKTOP_EOF
-
-# Create autostart directory and pipewire autostart
-mkdir -p "/home/USERNAME_PLACEHOLDER/.config/autostart"
-cat > "/home/USERNAME_PLACEHOLDER/.config/autostart/pipewire.desktop" << PIPEWIRE_EOF
-[Desktop Entry]
-Name=PipeWire
-Comment=PipeWire Sound Server
-Exec=pipewire
-Type=Application
-PIPEWIRE_EOF
-
-cat > "/home/USERNAME_PLACEHOLDER/.config/autostart/pipewire-pulse.desktop" << PULSE_EOF
-[Desktop Entry]
-Name=PipeWire PulseAudio
-Comment=PipeWire PulseAudio Compatibility
-Exec=pipewire-pulse
-Type=Application
-PULSE_EOF
 
 # Fix permissions
 chown -R USERNAME_PLACEHOLDER:USERNAME_PLACEHOLDER "/home/USERNAME_PLACEHOLDER"
@@ -659,13 +664,16 @@ cleanup_and_reboot() {
     print_warning "СИСТЕМА БУДЕТ ПЕРЕЗАГРУЖЕНА ЧЕРЕЗ 10 СЕКУНД!"
     echo ""
     print_info "После перезагрузки:"
-    print_info "1. На экране входа выберите сессию 'Hyprland'"
-    print_info "2. Основные комбинации клавиш:"
+    print_info "1. Должен появиться графический экран входа SDDM"
+    print_info "2. Выберите сессию 'Hyprland'"
+    print_info "3. Основные комбинации клавиш:"
     print_info "   - Super + Return: терминал (kitty)"
     print_info "   - Super + D: запуск приложений (rofi)"
     print_info "   - Super + Q: закрыть окно"
     print_info "   - Super + Shift + E: выход"
-    print_info "3. Звук должен работать автоматически через PipeWire"
+    print_info "4. Если возникнут проблемы, проверьте:"
+    print_info "   - Видеодрайверы установлены корректно"
+    print_info "   - Пользователь добавлен в группы video,audio"
     
     sleep 10
     reboot
