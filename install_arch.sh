@@ -321,7 +321,6 @@ if [ "$INSTALL_TYPE" = "full" ]; then
         pipewire pipewire-alsa pipewire-pulse wireplumber \
         network-manager-applet \
         git htop \
-        flatpak \
         noto-fonts noto-fonts-cjk noto-fonts-emoji \
         ttf-dejavu ttf-liberation
 
@@ -340,14 +339,9 @@ if [ "$INSTALL_TYPE" = "full" ]; then
 
     # Установка AUR пакетов
     printf "[+] Установка AUR пакетов...\n"
-    runuser -u kyon -- yay -S --noconfirm --answeredit None --answerclean None --answerdiff None \
+    runuser -u kyon -- yay -S --noconfirm --answerclean None --answerdiff None \
         visual-studio-code-bin \
         discord
-
-    # Установка Flatpak
-    printf "[+] Настройка Flatpak...\n"
-    flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-    runuser -u kyon -- flatpak install -y flathub 
 
     # Включение LightDM
     systemctl enable lightdm
@@ -395,6 +389,9 @@ else
     printf "[i] Для запуска i3 выполните: startx\n"
 fi
 printf "[i] Не забудьте настроить i3 под свои нужды\n"
+printf "[i] При необходимости установите Flatpak приложения позже:\n"
+printf "    flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo\n"
+printf "    flatpak --user install -y flathub org.telegram.desktop md.obsidian.Obsidian com.spotify.Client\n"
 EOF
 
     chmod +x "$script_path"
@@ -450,6 +447,3 @@ prompt_partition_action() {
 }
 
 main "$@"
-
-
-
