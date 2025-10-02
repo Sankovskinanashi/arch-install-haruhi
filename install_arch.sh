@@ -350,7 +350,6 @@ if [ "$INSTALL_TYPE" = "full" ]; then
     runuser -u kyon -- flatpak install -y flathub \
         org.telegram.desktop \
         md.obsidian.Obsidian \
-        com.spotify.Client
 
     # Включение LightDM
     systemctl enable lightdm
@@ -453,4 +452,5 @@ prompt_partition_action() {
 }
 
 main "$@"
+
 
