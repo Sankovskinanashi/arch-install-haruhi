@@ -341,7 +341,7 @@ else
         pipewire pipewire-alsa pipewire-pulse wireplumber
 fi
 
-# Создание базового конфига i3 (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+# Создание базового конфига i3
 printf "[+] Создание конфигурации i3...\n"
 mkdir -p /home/kyon/.config/i3
 cat > /home/kyon/.config/i3/config << 'I3CONFIG'
@@ -506,8 +506,41 @@ run_chroot_script() {
 install_grub() {
     if [[ -d /sys/firmware/efi/efivars ]]; then
         printf "[+] UEFI режим обнаружен. Установка GRUB...\n"
-        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+        
+        # Монтируем EFI vars для доступа к загрузочным записям
+        mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null || true
+        
+        # Очищаем старые загрузочные записи (если нужно)
+        printf "[+] Очистка старых загрузочных записей...\n"
+        if command -v efibootmgr >/dev/null 2>&1; then
+            # Удаляем все записи GRUB
+            for entry in $(efibootmgr | grep -i grub | awk -F'[^0-9]+' '{print $2}'); do
+                efibootmgr -b "$entry" -B 2>/dev/null || true
+            done
+        fi
+        
+        # Устанавливаем GRUB с дополнительными параметрами
+        printf "[+] Установка GRUB в EFI раздел...\n"
+        
+        # Сначала устанавливаем в chroot
+        if arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck; then
+            printf "[✓] GRUB установлен успешно\n"
+        else
+            printf "[!] Стандартная установка GRUB не удалась, пробуем альтернативный метод...\n"
+            # Альтернативный метод - установка как removable
+            arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --removable --recheck
+        fi
+        
+        # Создаем конфиг GRUB
         arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+        
+        # Проверяем загрузочные записи
+        printf "[+] Проверка загрузочных записей EFI...\n"
+        if command -v efibootmgr >/dev/null 2>&1; then
+            efibootmgr -v
+        fi
+        
+        printf "[✓] GRUB установлен в %s\n" "$EFI_PART"
     else
         printf "[!] Система не в UEFI режиме. Установка невозможна.\n" >&2
         return 1
@@ -517,9 +550,12 @@ install_grub() {
 cleanup_and_reboot() {
     rm -f /tmp/install_type
     printf "[+] Отмонтирование разделов...\n"
-    umount -R /mnt
+    umount -R /mnt 2>/dev/null || true
     printf "[✓] Установка завершена!\n"
-    printf "[i] Перезагрузите систему: reboot\n"
+    printf "\n[i] Важные заметки:\n"
+    printf "    - Если были ошибки GRUB, вы можете установить загрузчик позже\n"
+    printf "    - Для перезагрузки: reboot\n"
+    printf "    - Если система не загружается, используйте установочный USB для восстановления\n"
 }
 
 prompt_partition_action() {
