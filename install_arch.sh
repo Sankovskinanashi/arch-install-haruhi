@@ -300,24 +300,24 @@ print_error() { echo -e "${RED}[!]${NC} $1"; }
 
 # Basic system configuration
 print_status "Базовая настройка системы..."
-ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+ln -sf /usr/share/zoneinfo/__TIMEZONE__ /etc/localtime
 hwclock --systohc
 
 # Locale configuration
 print_status "Настройка локали..."
-sed -i 's/^#\('"$LOCALE"'\)/\1/' /etc/locale.gen
+sed -i 's/^#\(__LOCALE__\)/\1/' /etc/locale.gen
 sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
 locale-gen
 
-echo "LANG=$LOCALE" > /etc/locale.conf
-echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
-echo "$HOSTNAME" > /etc/hostname
+echo "LANG=__LOCALE__" > /etc/locale.conf
+echo "KEYMAP=__KEYMAP__" > /etc/vconsole.conf
+echo "__HOSTNAME__" > /etc/hostname
 
 # Hosts file
 cat > /etc/hosts << HOSTS_EOF
 127.0.0.1   localhost
 ::1         localhost
-127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
+127.0.1.1   __HOSTNAME__.localdomain __HOSTNAME__
 HOSTS_EOF
 
 # User setup
@@ -327,9 +327,9 @@ until passwd; do
     print_warning "Попробуйте еще раз"
 done
 
-useradd -m -G wheel -s /bin/bash $USERNAME
-echo "Установите пароль для пользователя $USERNAME:"
-until passwd $USERNAME; do
+useradd -m -G wheel -s /bin/bash __USERNAME__
+echo "Установите пароль для пользователя __USERNAME__:"
+until passwd __USERNAME__; do
     print_warning "Попробуйте еще раз"
 done
 
@@ -337,8 +337,8 @@ done
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
 
 # Install GPU drivers
-print_status "Установка драйверов для $GPU_TYPE..."
-case "$GPU_TYPE" in
+print_status "Установка драйверов для __GPU_TYPE__..."
+case "__GPU_TYPE__" in
     nvidia)
         pacman -S --noconfirm nvidia nvidia-utils nvidia-settings
         ;;
@@ -389,35 +389,35 @@ sed -i '/builder ALL=(ALL) NOPASSWD: ALL/d' /etc/sudoers
 
 # Install additional AUR packages as regular user
 print_status "Установка дополнительных пакетов..."
-sudo -u $USERNAME yay -S --noconfirm visual-studio-code-bin discord
+sudo -u __USERNAME__ yay -S --noconfirm visual-studio-code-bin discord
 
 # Clone and setup configuration
 print_status "Установка конфигурации AvantParker..."
-cd /home/$USERNAME
-sudo -u $USERNAME git clone $CONFIG_REPO avantparker-config
+cd /home/__USERNAME__
+sudo -u __USERNAME__ git clone __CONFIG_REPO__ avantparker-config
 
 # Copy configuration files
 print_status "Копирование конфигурационных файлов..."
 configs=("hypr" "waybar" "rofi" "kitty" "dunst" "fastfetch" "zathura" "picom")
 for config in "${configs[@]}"; do
-    if [ -d "/home/$USERNAME/avantparker-config/$config" ]; then
-        sudo -u $USERNAME mkdir -p "/home/$USERNAME/.config/$config"
-        sudo -u $USERNAME cp -r "/home/$USERNAME/avantparker-config/$config/"* "/home/$USERNAME/.config/$config/" 2>/dev/null || true
+    if [ -d "/home/__USERNAME__/avantparker-config/$config" ]; then
+        sudo -u __USERNAME__ mkdir -p "/home/__USERNAME__/.config/$config"
+        sudo -u __USERNAME__ cp -r "/home/__USERNAME__/avantparker-config/$config/"* "/home/__USERNAME__/.config/$config/" 2>/dev/null || true
     fi
 done
 
 # Copy dotfiles
-if [ -f "/home/$USERNAME/avantparker-config/.zshrc" ]; then
-    sudo -u $USERNAME cp "/home/$USERNAME/avantparker-config/.zshrc" "/home/$USERNAME/"
+if [ -f "/home/__USERNAME__/avantparker-config/.zshrc" ]; then
+    sudo -u __USERNAME__ cp "/home/__USERNAME__/avantparker-config/.zshrc" "/home/__USERNAME__/"
 fi
 
 # Setup Zsh
 print_status "Настройка Zsh..."
 # Install oh-my-zsh without changing shell immediately
-sudo -u $USERNAME sh -c "RUNZSH=no sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
+sudo -u __USERNAME__ sh -c "RUNZSH=no sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
 
 # Change shell to zsh
-chsh -s /bin/zsh $USERNAME
+chsh -s /bin/zsh __USERNAME__
 
 # Enable services
 print_status "Включение служб..."
@@ -426,8 +426,8 @@ systemctl enable bluetooth
 systemctl enable pipewire pipewire-pulse
 
 # Create desktop entry for Hyprland
-mkdir -p /home/$USERNAME/.local/share/wayland-sessions
-cat > /home/$USERNAME/.local/share/wayland-sessions/hyprland.desktop << DESKTOP_EOF
+mkdir -p /home/__USERNAME__/.local/share/wayland-sessions
+cat > /home/__USERNAME__/.local/share/wayland-sessions/hyprland.desktop << DESKTOP_EOF
 [Desktop Entry]
 Name=Hyprland
 Comment=Hyprland Wayland compositor
@@ -436,18 +436,19 @@ Type=Application
 DESKTOP_EOF
 
 # Fix permissions
-chown -R $USERNAME:$USERNAME /home/$USERNAME
+chown -R __USERNAME__:__USERNAME__ /home/__USERNAME__
 
 print_status "Настройка в chroot завершена!"
 EOF
 
-    # Replace variables in the script
-    sed -i "s/\\\$HOSTNAME/$HOSTNAME/g" "$script_path"
-    sed -i "s/\\\$USERNAME/$USERNAME/g" "$script_path"
-    sed -i "s|\\\$TIMEZONE|$TIMEZONE|g" "$script_path"
-    sed -i "s/\\\$LOCALE/$LOCALE/g" "$script_path"
-    sed -i "s/\\\$GPU_TYPE/$GPU_TYPE/g" "$script_path"
-    sed -i "s|\\\$CONFIG_REPO|$CONFIG_REPO|g" "$script_path"
+    # Replace placeholder variables in the script
+    sed -i "s/__HOSTNAME__/$HOSTNAME/g" "$script_path"
+    sed -i "s/__USERNAME__/$USERNAME/g" "$script_path"
+    sed -i "s/__TIMEZONE__/$TIMEZONE/g" "$script_path"
+    sed -i "s/__LOCALE__/$LOCALE/g" "$script_path"
+    sed -i "s/__KEYMAP__/$KEYMAP/g" "$script_path"
+    sed -i "s/__GPU_TYPE__/$GPU_TYPE/g" "$script_path"
+    sed -i "s|__CONFIG_REPO__|$CONFIG_REPO|g" "$script_path"
     
     chmod +x "$script_path"
 }
