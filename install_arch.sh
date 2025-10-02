@@ -243,6 +243,30 @@ detect_microcode() {
     fi
 }
 
+# Configure mirrors using rate-mirrors (run before chroot)
+configure_mirrors() {
+    print_status "Настройка зеркал с помощью rate-mirrors..."
+    
+    # Install rate-mirrors in live environment
+    if ! command -v rate-mirrors &> /dev/null; then
+        print_status "Установка rate-mirrors в live-окружении..."
+        cd /tmp
+        git clone https://aur.archlinux.org/rate-mirrors-bin.git
+        cd rate-mirrors-bin
+        makepkg -si --noconfirm
+        cd /
+    fi
+    
+    # Configure mirrors
+    export TMPFILE="$(mktemp)"
+    rate-mirrors --save="$TMPFILE" arch --max-delay=43200
+    cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
+    mv "$TMPFILE" /etc/pacman.d/mirrorlist
+    
+    print_status "Обновление базы пакетов с новыми зеркалами..."
+    pacman -Syy
+}
+
 # Install base system
 install_base_system() {
     local microcode=$(detect_microcode)
@@ -270,18 +294,28 @@ generate_fstab() {
 create_chroot_script() {
     local script_path="/mnt/root/chroot_script.sh"
     
-    cat > "$script_path" << EOF
+    cat > "$script_path" << 'EOF'
 #!/bin/bash
 set -euo pipefail
 
 # Colors
-GREEN='\\033[0;32m'
-YELLOW='\\033[1;33m'
-RED='\\033[0;31m'
-NC='\\033[0m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
 
-print_status() { echo -e "\\\${GREEN}[+]\\\${NC} \\\$1"; }
-print_warning() { echo -e "\\\${YELLOW}[!]\\\${NC} \\\$1"; }
+print_status() { echo -e "${GREEN}[+]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[!]${NC} $1"; }
+print_error() { echo -e "${RED}[!]${NC} $1"; }
+
+# Configuration (these will be replaced by sed)
+HOSTNAME="ARCH-HYPRLAND"
+USERNAME="kyon"
+LOCALE="ru_RU.UTF-8"
+KEYMAP="ru"
+TIMEZONE="Europe/Moscow"
+GPU_TYPE="intel"
+CONFIG_REPO="https://github.com/AvantParker/config.git"
 
 # Basic system configuration
 print_status "Базовая настройка системы..."
@@ -290,8 +324,8 @@ hwclock --systohc
 
 # Locale configuration
 print_status "Настройка локали..."
-sed -i 's/^#\\($LOCALE\\)/\\1/' /etc/locale.gen
-sed -i 's/^#\\(en_US.UTF-8\\)/\\1/' /etc/locale.gen
+sed -i 's/^#\('"$LOCALE"'\)/\1/' /etc/locale.gen
+sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
 locale-gen
 
 echo "LANG=$LOCALE" > /etc/locale.conf
@@ -308,11 +342,15 @@ HOSTS_EOF
 # User setup
 print_status "Настройка пользователей..."
 echo "Установите пароль для root:"
-passwd
+until passwd; do
+    print_warning "Попробуйте еще раз"
+done
 
 useradd -m -G wheel -s /bin/bash $USERNAME
 echo "Установите пароль для пользователя $USERNAME:"
-passwd $USERNAME
+until passwd $USERNAME; do
+    print_warning "Попробуйте еще раз"
+done
 
 # Sudo configuration
 echo "%wheel ALL=(ALL) ALL" >> /etc/sudoers
@@ -324,10 +362,10 @@ case "$GPU_TYPE" in
         pacman -S --noconfirm nvidia nvidia-utils nvidia-settings
         ;;
     amd)
-        pacman -S --noconfirm mesa vulkan-radeon
+        pacman -S --noconfirm mesa vulkan-radeon libva-mesa-driver
         ;;
     intel)
-        pacman -S --noconfirm mesa vulkan-intel
+        pacman -S --noconfirm mesa vulkan-intel intel-media-driver
         ;;
     vm)
         pacman -S --noconfirm mesa xf86-video-qxl
@@ -336,13 +374,13 @@ esac
 
 # Install Hyprland and essential packages
 print_status "Установка Hyprland и окружения..."
-pacman -S --noconfirm hyprland waybar rofi dunst kitty thunar \\
-    firefox swaybg swaylock grim slurp wl-clipboard polkit-gnome \\
-    networkmanager blueman pipewire pipewire-alsa pipewire-pulse \\
-    wireplumber brightnessctl fastfetch zathura picom \\
-    ttf-firacode-nerd ttf-jetbrains-mono-nerd noto-fonts \\
-    noto-fonts-emoji noto-fonts-cjk papirus-icon-theme \\
-    gnome-themes-extra xdg-desktop-portal-hyprland \\
+pacman -S --noconfirm hyprland waybar rofi dunst kitty thunar \
+    firefox swaybg swaylock grim slurp wl-clipboard polkit-gnome \
+    networkmanager blueman pipewire pipewire-alsa pipewire-pulse \
+    wireplumber brightnessctl fastfetch zathura picom \
+    ttf-firacode-nerd ttf-jetbrains-mono-nerd noto-fonts \
+    noto-fonts-emoji noto-fonts-cjk papirus-icon-theme \
+    gnome-themes-extra xdg-desktop-portal-hyprland \
     zsh starship bat exa fzf ripgrep fd
 
 # Install yay AUR helper
@@ -354,33 +392,22 @@ sudo -u $USERNAME makepkg -si --noconfirm
 cd /
 rm -rf /tmp/yay
 
-# Install rate-mirrors and configure mirrors
-print_status "Настройка зеркал..."
-sudo -u $USERNAME yay -S --noconfirm rate-mirrors-bin
-
-export TMPFILE="\\\$(mktemp)"
-rate-mirrors --save="\\\$TMPFILE" arch --max-delay=43200
-mv /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.backup
-mv "\\\$TMPFILE" /etc/pacman.d/mirrorlist
-
-# Update package database
-pacman -Syy
-
 # Install additional AUR packages
 print_status "Установка дополнительных пакетов..."
 sudo -u $USERNAME yay -S --noconfirm visual-studio-code-bin discord
 
 # Clone and setup configuration
 print_status "Установка конфигурации AvantParker..."
-sudo -u $USERNAME git clone $CONFIG_REPO /home/$USERNAME/avantparker-config
+cd /home/$USERNAME
+sudo -u $USERNAME git clone $CONFIG_REPO avantparker-config
 
 # Copy configuration files
-sudo -u $USERNAME mkdir -p /home/$USERNAME/.config
-
+print_status "Копирование конфигурационных файлов..."
 configs=("hypr" "waybar" "rofi" "kitty" "dunst" "fastfetch" "zathura" "picom")
-for config in "\\\${configs[@]}"; do
-    if [ -d "/home/$USERNAME/avantparker-config/\\\$config" ]; then
-        sudo -u $USERNAME cp -r "/home/$USERNAME/avantparker-config/\\\$config" "/home/$USERNAME/.config/"
+for config in "${configs[@]}"; do
+    if [ -d "/home/$USERNAME/avantparker-config/$config" ]; then
+        sudo -u $USERNAME mkdir -p "/home/$USERNAME/.config/$config"
+        sudo -u $USERNAME cp -r "/home/$USERNAME/avantparker-config/$config/"* "/home/$USERNAME/.config/$config/" 2>/dev/null || true
     fi
 done
 
@@ -391,7 +418,11 @@ fi
 
 # Setup Zsh
 print_status "Настройка Zsh..."
-sudo -u $USERNAME sh -c "\\\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+# Install oh-my-zsh without changing shell immediately
+sudo -u $USERNAME sh -c "RUNZSH=no sh -c \"\$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
+
+# Change shell to zsh
+chsh -s /bin/zsh $USERNAME
 
 # Enable services
 print_status "Включение служб..."
@@ -400,7 +431,7 @@ systemctl enable bluetooth
 systemctl enable pipewire pipewire-pulse
 
 # Create desktop entry for Hyprland
-sudo -u $USERNAME mkdir -p /home/$USERNAME/.local/share/wayland-sessions
+mkdir -p /home/$USERNAME/.local/share/wayland-sessions
 cat > /home/$USERNAME/.local/share/wayland-sessions/hyprland.desktop << DESKTOP_EOF
 [Desktop Entry]
 Name=Hyprland
@@ -409,9 +440,19 @@ Exec=Hyprland
 Type=Application
 DESKTOP_EOF
 
+# Fix permissions
+chown -R $USERNAME:$USERNAME /home/$USERNAME
+
 print_status "Настройка в chroot завершена!"
 EOF
 
+    # Replace variables in the script
+    sed -i "s/ARCH-HYPRLAND/$HOSTNAME/g" "$script_path"
+    sed -i "s/kyon/$USERNAME/g" "$script_path"
+    sed -i "s|Europe/Moscow|$TIMEZONE|g" "$script_path"
+    sed -i "s/ru_RU.UTF-8/$LOCALE/g" "$script_path"
+    sed -i "s/intel/$GPU_TYPE/g" "$script_path"
+    
     chmod +x "$script_path"
 }
 
@@ -463,6 +504,7 @@ main() {
     prompt_partition_action
     mount_partitions
     enable_ntp
+    configure_mirrors  # Move mirrors configuration here
     install_base_system
     generate_fstab
     create_chroot_script
