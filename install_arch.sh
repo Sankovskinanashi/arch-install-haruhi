@@ -13,11 +13,10 @@ USERNAME="kyon"
 LOCALE="ru_RU.UTF-8"
 KEYMAP="ru"
 TIMEZONE="Europe/Moscow"
+EDITOR="nano"
 INSTALL_TYPE=""
-FAST_MODE="n"
 
 main() {
-    ask_fast_mode
     check_internet
     detect_disks
     select_disk
@@ -34,28 +33,18 @@ main() {
     cleanup_and_reboot
 }
 
-ask_fast_mode() {
-    printf "[?] Включить быстрый режим? (пропуск проверок PGP) [y/N]: "
-    read -r FAST_MODE
-    FAST_MODE="${FAST_MODE:-n}"
-}
-
 select_install_type() {
     printf "\n[?] Выберите тип установки:\n"
-    printf "  [1] Полная (GNOME + приложения)\n"
+    printf "  [1] Полная (GNOME + все приложения)\n"
     printf "  [2] Минимальная (базовая система)\n"
-    printf "  [3] GNOME без дополнений\n"
-    printf "  [4] XFCE (легковесный DE)\n"
-    read -rp "Выбор [1-4]: " choice
+    read -rp "Выбор [1/2]: " choice
     
     case "$choice" in
         1) INSTALL_TYPE="full" ;;
         2) INSTALL_TYPE="minimal" ;;
-        3) INSTALL_TYPE="gnome" ;;
-        4) INSTALL_TYPE="xfce" ;;
         *) 
-            printf "[!] Неверный выбор, используем минимальную установку\n"
-            INSTALL_TYPE="minimal" 
+            printf "[!] Неверный выбор, используем полную установку\n"
+            INSTALL_TYPE="full" 
             ;;
     esac
 }
@@ -64,6 +53,8 @@ check_internet() {
     printf "[*] Проверка интернет-соединения...\n"
     if ! ping -c 1 -W 3 archlinux.org &>/dev/null; then
         printf "[!] Нет доступа к интернету. Настройте подключение и перезапустите установку.\n" >&2
+        printf "[i] Подключение Wi-Fi: iwctl\n" >&2
+        printf "[i] Подключение Ethernet: systemctl start dhcpcd или ip link set <интерфейс> up\n" >&2
         exit 1
     fi
     printf "[+] Интернет доступен.\n"
@@ -80,7 +71,7 @@ select_disk() {
     read -rp "[?] Укажите диск для установки (например /dev/sda): " DISK
     if [[ ! -b "$DISK" ]]; then
         printf "[!] Указанный диск не существует: %s\n" "$DISK" >&2
-        exit 1
+        return 1
     fi
 }
 
@@ -93,15 +84,11 @@ prompt_partition_action() {
     printf "\n[?] Что вы хотите сделать с разделами?\n"
     printf "  [1] Использовать существующие\n"
     printf "  [2] Удалить все и создать заново\n"
-    read -rp "Выбор [1/2]: " action
-    
+    read -rp "Выбор: " action
     case "$action" in
         1) select_existing_partitions ;;
         2) wipe_and_create_partitions ;;
-        *) 
-            printf "[!] Неверный выбор\n" >&2
-            exit 1
-            ;;
+        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
     esac
 }
 
@@ -116,37 +103,24 @@ select_existing_partitions() {
 wipe_and_create_partitions() {
     printf "[!] Все данные на %s будут удалены!\n" "$DISK"
     read -rp "Продолжить? (yes/[no]): " confirm
-    [[ "$confirm" != "yes" ]] && exit 1
+    [[ "$confirm" != "yes" ]] && return 1
 
-    printf "[+] Стираем разделы...\n"
-    wipefs -a "$DISK" >/dev/null 2>&1
-    
-    printf "[+] Создаём таблицу разделов GPT...\n"
+    wipefs -a "$DISK"
     parted -s "$DISK" mklabel gpt
-    
-    printf "[+] Создаём EFI раздел...\n"
+
     parted -s "$DISK" mkpart "$EFI_LABEL" fat32 1MiB "$BOOT_SIZE"
     parted -s "$DISK" set 1 esp on
-    
-    printf "[+] Создаём корневой раздел...\n"
     parted -s "$DISK" mkpart "$ROOT_LABEL" "$FS_TYPE" "$BOOT_SIZE" 100%
-    
-    sync
-    
-    # Определяем правильные имена разделов
-    if [[ "$DISK" =~ nvme|mmc ]]; then
-        EFI_PART="${DISK}p1"
-        ROOT_PART="${DISK}p2"
-    else
-        EFI_PART="${DISK}1"
-        ROOT_PART="${DISK}2"
-    fi
-    
-    sleep 2
 
-    if [[ ! -b "$EFI_PART" || ! -b "$ROOT_PART" ]]; then
+    sync
+    sleep 1
+
+    EFI_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?1$" || true)
+    ROOT_PART=$(ls "${DISK}"* | grep -E "^${DISK}p?2$" || true)
+
+    if [[ -z "$EFI_PART" || -z "$ROOT_PART" ]]; then
         printf "[!] Не удалось обнаружить созданные разделы\n" >&2
-        exit 1
+        return 1
     fi
 
     choose_filesystem "$ROOT_PART"
@@ -157,257 +131,143 @@ wipe_and_create_partitions() {
 choose_filesystem() {
     local part="$1"
     printf "\n[?] Выберите файловую систему для %s:\n" "$part"
-    printf "  [1] ext4 (рекомендуется)\n"
+    printf "  [1] ext4\n"
     printf "  [2] btrfs\n"
-    printf "  [3] xfs\n"
-    read -rp "Выбор [1-3]: " fs
-    
+    read -rp "Выбор: " fs
     case "$fs" in
         1) FS_TYPE="ext4" ;;
         2) FS_TYPE="btrfs" ;;
-        3) FS_TYPE="xfs" ;;
-        *) 
-            printf "[!] Неверный выбор, используем ext4\n"
-            FS_TYPE="ext4"
-            ;;
+        *) printf "[!] Неверный выбор\n" >&2; return 1 ;;
     esac
 }
 
 format_partition() {
     local part="$1" fstype="$2" label="$3"
-    
-    printf "[+] Форматируем %s в %s...\n" "$part" "$fstype"
-    
     case "$fstype" in
         fat32)
-            mkfs.fat -F32 -n "$label" "$part" >/dev/null 2>&1
+            printf "[+] Форматирование %s в FAT32...\n" "$part"
+            mkfs.fat -F32 "$part" || return 1
             ;;
         ext4)
-            mkfs.ext4 -L "$label" -F "$part" >/dev/null 2>&1
+            printf "[+] Форматирование %s в ext4...\n" "$part"
+            mkfs.ext4 -L "$label" "$part" || return 1
             ;;
         btrfs)
-            mkfs.btrfs -f -L "$label" "$part" >/dev/null 2>&1
-            ;;
-        xfs)
-            mkfs.xfs -f -L "$label" "$part" >/dev/null 2>&1
+            printf "[+] Форматирование %s в Btrfs...\n" "$part"
+            mkfs.btrfs -f -L "$label" "$part" || return 1
             ;;
         *)
             printf "[!] Неизвестная ФС: %s\n" "$fstype" >&2
-            exit 1
+            return 1
             ;;
     esac
 }
 
 mount_partitions() {
-    printf "[+] Монтируем корневой раздел...\n"
+    printf "[+] Монтирование корневого раздела...\n"
     mount "$ROOT_PART" /mnt
     mkdir -p /mnt/boot/efi
     mount "$EFI_PART" /mnt/boot/efi
 }
 
 enable_ntp() {
-    printf "[+] Включаем синхронизацию времени...\n"
-    timedatectl set-ntp true >/dev/null 2>&1
+    printf "[+] Включение синхронизации времени...\n"
+    timedatectl set-ntp true
 }
 
 install_base_system() {
-    printf "[+] Устанавливаем базовую систему...\n"
+    local packages="base base-devel linux linux-firmware nano git grub efibootmgr networkmanager"
     
-    local pacstrap_opts="--needed"
-    if [[ "$FAST_MODE" =~ ^[Yy]$ ]]; then
-        pacstrap_opts="$pacstrap_opts --ignore signature"
+    if [ "$INSTALL_TYPE" = "full" ]; then
+        packages+=" intel-ucode"
     fi
-    
-    # Базовые пакеты
-    local packages="base base-devel linux linux-firmware sudo grub efibootmgr networkmanager"
-    
-    # Определяем процессор
-    if grep -q "GenuineIntel" /proc/cpuinfo; then
-        packages="$packages intel-ucode"
-    elif grep -q "AuthenticAMD" /proc/cpuinfo; then
-        packages="$packages amd-ucode"
-    fi
-    
-    # Добавляем полезные утилиты
-    packages="$packages nano vim git wget curl htop"
-    
-    printf "[*] Устанавливаем: %s\n" "$packages"
-    pacstrap /mnt $packages $pacstrap_opts
+
+    printf "[+] Установка базовой системы...\n"
+    pacstrap /mnt $packages
 }
 
 generate_fstab() {
-    printf "[+] Генерируем fstab...\n"
+    printf "[+] Генерация fstab...\n"
     genfstab -U /mnt >> /mnt/etc/fstab
 }
 
 create_chroot_script() {
     local script_path="/mnt/root/chroot_script.sh"
-    
-    cat > "$script_path" <<'EOF'
+    cat > "$script_path" <<EOF
 #!/bin/bash
 set -euo pipefail
 
-# Устанавливаем локаль
-echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
-echo "KEYMAP=ru" > /etc/vconsole.conf
-
-# Настраиваем локализацию
-sed -i 's/^#\(ru_RU.UTF-8\)/\1/' /etc/locale.gen
-sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
-locale-gen
-
-# Устанавливаем часовой пояс
-ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
+ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 hwclock --systohc
 
-# Настраиваем имя хоста
-echo "haruhi" > /etc/hostname
+sed -i 's/^#\\($LOCALE\\)/\\1/' /etc/locale.gen
+sed -i 's/^#\\(en_US.UTF-8\\)/\\1/' /etc/locale.gen
+locale-gen
+
+echo "LANG=$LOCALE" > /etc/locale.conf
+echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
+echo "$HOSTNAME" > /etc/hostname
 cat > /etc/hosts << HOSTS
 127.0.0.1   localhost
 ::1         localhost
-127.0.1.1   haruhi.localdomain haruhi
+127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
 HOSTS
 
-# Создаём пользователя
-useradd -m -G wheel,storage,power -s /bin/bash kyon
-echo "Установите пароль для root:"
-until passwd; do
-    echo "Попробуйте ещё раз:"
-done
-echo "Установите пароль для пользователя kyon:"
-until passwd kyon; do
-    echo "Попробуйте ещё раз:"
-done
+passwd
+useradd -m -G wheel -s /bin/bash $USERNAME
+passwd $USERNAME
+grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
-# Настраиваем sudo
-sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+$EDITOR /etc/pacman.conf
 
-# Настраиваем pacman для быстрой загрузки
-sed -i 's/^#Color/Color/' /etc/pacman.conf
-sed -i 's/^#ParallelDownloads = 5/ParallelDownloads = 5/' /etc/pacman.conf
+pacman -Syu --noconfirm
 
-# Обновляем систему
-if [[ -f /tmp/fast_mode && $(cat /tmp/fast_mode) == "y" ]]; then
-    pacman -Syu --noconfirm --ignore signature --needed
-else
-    pacman -Syu --noconfirm --needed
+if [ "$INSTALL_TYPE" = "full" ]; then
+    pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber wireguard-tools steam lutris wine
+
+    runuser -u $USERNAME -- bash -c '
+    cd /home/$USERNAME
+    git clone https://aur.archlinux.org/yay.git
+    cd yay
+    makepkg -si --noconfirm
+    '
+
+    runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
+
+    flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
 fi
 
-# Устанавливаем базовые утилиты
-base_packages="bash-completion git wget curl htop"
-pacman -S --noconfirm --needed $base_packages
-
-# Определяем тип установки
-INSTALL_TYPE=$(cat /tmp/install_type 2>/dev/null || echo "minimal")
-
-case "$INSTALL_TYPE" in
-    "full")
-        echo "[*] Устанавливаем полное окружение GNOME..."
-        
-        gnome_packages="xorg xorg-server gnome gnome-extra gdm network-manager-applet"
-        gnome_packages="$gnome_packages firefox vlc gimp libreoffice-fresh"
-        
-        pacman -S --noconfirm --needed $gnome_packages
-        
-        # Установка AUR помощника
-        echo "[*] Устанавливаем yay из AUR..."
-        cd /tmp
-        git clone https://aur.archlinux.org/yay.git
-        cd yay
-        chown -R kyon:kyon .
-        sudo -u kyon makepkg -si --noconfirm
-        
-        # AUR пакеты (опционально)
-        echo "[*] Устанавливаем дополнительные пакеты из AUR..."
-        aur_packages="visual-studio-code-bin google-chrome"
-        sudo -u kyon yay -S --noconfirm $aur_packages
-        
-        systemctl enable gdm
-        ;;
-        
-    "gnome")
-        echo "[*] Устанавливаем GNOME..."
-        
-        gnome_minimal="xorg xorg-server gnome gdm"
-        pacman -S --noconfirm --needed $gnome_minimal
-        systemctl enable gdm
-        ;;
-        
-    "xfce")
-        echo "[*] Устанавливаем XFCE..."
-        
-        xfce_packages="xfce4 xfce4-goodies lightdm lightdm-gtk-greeter"
-        pacman -S --noconfirm --needed $xfce_packages
-        systemctl enable lightdm
-        ;;
-        
-    *)
-        echo "[*] Минимальная установка (только консоль)..."
-        ;;
-esac
-
-# Включаем NetworkManager
 systemctl enable NetworkManager
 
-# Установка GRUB
-if [[ -d /sys/firmware/efi ]]; then
-    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ARCH --recheck
-else
-    DISK_DEVICE=$(lsblk -no pkname /dev/$(mount | grep ' / ' | cut -d' ' -f1))
-    grub-install --target=i386-pc "/dev/$DISK_DEVICE" --recheck
+if [ "$INSTALL_TYPE" = "full" ]; then
+    systemctl enable gdm
 fi
-
-grub-mkconfig -o /boot/grub/grub.cfg
-
-# Создаём initramfs
-mkinitcpio -P
-
-echo "[✓] Настройка системы завершена!"
 EOF
-    
-    # Сохраняем параметры для chroot
-    echo "$INSTALL_TYPE" > /mnt/tmp/install_type
-    echo "$FAST_MODE" > /mnt/tmp/fast_mode
+
     chmod +x "$script_path"
 }
 
 run_chroot_script() {
-    printf "[+] Запускаем настройку в chroot...\n"
-    
-    # Копируем DNS для работы в chroot
-    cp /etc/resolv.conf /mnt/etc/resolv.conf
-    
-    # Запускаем скрипт
+    printf "[+] Выполнение конфигурации в chroot...\n"
     arch-chroot /mnt /root/chroot_script.sh
 }
 
 install_grub() {
-    printf "[+] Настройка загрузчика завершена в chroot.\n"
-}
-
-cleanup_and_reboot() {
-    printf "[+] Отмонтируем разделы...\n"
-    umount -R /mnt 2>/dev/null || true
-    
-    printf "\n[✓] Установка Arch Linux завершена!\n"
-    printf "\nДальнейшие действия:\n"
-    printf "1. Извлеките установочный носитель\n"
-    printf "2. Перезагрузите систему: reboot\n"
-    printf "3. Войдите как пользователь 'kyon'\n"
-    
-    printf "\n[?] Перезагрузить сейчас? (y/N): "
-    read -r choice
-    
-    if [[ "$choice" =~ ^[Yy]$ ]]; then
-        reboot
+    if [[ -d /sys/firmware/efi/efivars ]]; then
+        printf "[+] UEFI режим обнаружен. Установка GRUB...\n"
+        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+    else
+        printf "[!] Система не в UEFI режиме. Установка невозможна.\n" >&2
+        return 1
     fi
 }
 
-# Проверяем права root
-if [[ $EUID -ne 0 ]]; then
-    printf "[!] Скрипт должен запускаться от root!\n" >&2
-    exit 1
-fi
+cleanup_and_reboot() {
+    printf "[+] Отмонтирование /mnt...\n"
+    umount -R /mnt
+    printf "[✓] Установка завершена. Перезагрузите систему вручную.\n"
+}
 
-# Запускаем установку
 main "$@"
