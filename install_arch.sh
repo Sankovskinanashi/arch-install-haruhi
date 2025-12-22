@@ -18,6 +18,7 @@ INSTALL_TYPE=""
 
 main() {
     check_internet
+    update_pacman_keys  # Обновляем ключи в самом начале
     detect_disks
     select_disk
     select_install_type
@@ -31,6 +32,86 @@ main() {
     run_chroot_script
     install_grub
     cleanup_and_reboot
+}
+
+# Функция для обновления PGP ключей
+update_pacman_keys() {
+    printf "[+] Обновление ключей Arch Linux...\n"
+    
+    # Убедимся, что база ключей инициализирована
+    if [[ ! -d /etc/pacman.d/gnupg ]]; then
+        printf "[*] Инициализация базы ключей...\n"
+        pacman-key --init
+    fi
+    
+    # Популируем ключи Arch
+    printf "[*] Импорт ключей Arch Linux...\n"
+    pacman-key --populate archlinux || {
+        printf "[!] Не удалось импортировать ключи, пробуем принудительно...\n"
+        pacman-key --init
+        pacman-key --populate archlinux
+    }
+    
+    # Обновляем ключевую базу
+    printf "[*] Обновление archlinux-keyring...\n"
+    pacman -Sy --noconfirm archlinux-keyring 2>/dev/null || true
+    
+    # Обновляем ключи из сети
+    printf "[*] Обновление ключей из сети...\n"
+    pacman-key --refresh-keys 2>/dev/null || {
+        printf "[*] Пропускаем обновление из сети (может не быть интернета)...\n"
+    }
+    
+    # Проверяем ключи
+    printf "[*] Проверка целостности ключей...\n"
+    if ! pacman-key --list-sigs >/dev/null 2>&1; then
+        printf "[!] Проблема с ключами. Пробуем исправить...\n"
+        rm -rf /etc/pacman.d/gnupg
+        pacman-key --init
+        pacman-key --populate archlinux
+    fi
+    
+    printf "[✓] Ключи обновлены\n"
+}
+
+# Функция для безопасной установки пакетов
+safe_pacstrap() {
+    local packages="$1"
+    local max_retries=3
+    local retry_count=0
+    
+    while [[ $retry_count -lt $max_retries ]]; do
+        printf "[*] Попытка установки пакетов ($((retry_count + 1))/$max_retries)...\n"
+        
+        if pacstrap -c /mnt $packages; then
+            printf "[✓] Пакеты успешно установлены\n"
+            return 0
+        else
+            retry_count=$((retry_count + 1))
+            
+            if [[ $retry_count -lt $max_retries ]]; then
+                printf "[!] Ошибка установки. Повторная попытка через 5 секунд...\n"
+                sleep 5
+                
+                # Обновляем ключи перед повторной попыткой
+                printf "[*] Обновление ключей перед повторной попыткой...\n"
+                pacman-key --refresh-keys 2>/dev/null || true
+                pacman -Sy --noconfirm archlinux-keyring 2>/dev/null || true
+            fi
+        fi
+    done
+    
+    printf "[!] Не удалось установить пакеты после $max_retries попыток\n"
+    printf "[i] Попробуйте установить вручную с опцией --ignore signature:\n"
+    printf "    pacstrap -c /mnt $packages --ignore signature\n"
+    printf "[?] Продолжить с игнорированием подписей? (y/N): "
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        pacstrap -c /mnt $packages --ignore signature
+    else
+        printf "[!] Установка прервана\n"
+        exit 1
+    fi
 }
 
 select_install_type() {
@@ -183,7 +264,7 @@ install_base_system() {
     fi
 
     printf "[+] Установка базовой системы...\n"
-    pacstrap /mnt $packages
+    safe_pacstrap "$packages"
 }
 
 generate_fstab() {
@@ -193,63 +274,168 @@ generate_fstab() {
 
 create_chroot_script() {
     local script_path="/mnt/root/chroot_script.sh"
-    cat > "$script_path" <<EOF
+    cat > "$script_path" <<'EOF'
 #!/bin/bash
 set -euo pipefail
 
-ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+# Функция для обновления ключей в chroot
+update_chroot_keys() {
+    printf "[*] Обновление ключей в установленной системе...\n"
+    
+    # Устанавливаем archlinux-keyring
+    pacman -Sy --noconfirm archlinux-keyring 2>/dev/null || {
+        printf "[!] Не удалось установить archlinux-keyring, пробуем другой способ...\n"
+        pacman-key --init
+        pacman-key --populate archlinux
+    }
+    
+    # Обновляем ключи
+    pacman-key --refresh-keys 2>/dev/null || true
+    
+    printf "[✓] Ключи обновлены\n"
+}
+
+# Функция для безопасной установки пакетов в chroot
+safe_pacman_install() {
+    local packages="$1"
+    local max_retries=3
+    local retry_count=0
+    
+    while [[ $retry_count -lt $max_retries ]]; do
+        printf "[*] Попытка установки ($((retry_count + 1))/$max_retries)...\n"
+        
+        if pacman -S --noconfirm $packages; then
+            printf "[✓] Пакеты установлены успешно\n"
+            return 0
+        else
+            retry_count=$((retry_count + 1))
+            
+            if [[ $retry_count -lt $max_retries ]]; then
+                printf "[!] Ошибка установки. Обновление ключей и повтор...\n"
+                update_chroot_keys
+                sleep 2
+            fi
+        fi
+    done
+    
+    printf "[!] Не удалось установить пакеты после $max_retries попыток\n"
+    printf "[?] Продолжить с игнорированием подписей? (y/N): "
+    read -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        pacman -S --noconfirm $packages --ignore signature
+    else
+        printf "[!] Продолжаем без установки этих пакетов\n"
+        return 1
+    fi
+}
+
+# Обновляем ключи перед началом
+update_chroot_keys
+
+# Настройка локали и времени
+ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
 hwclock --systohc
 
-sed -i 's/^#\\($LOCALE\\)/\\1/' /etc/locale.gen
-sed -i 's/^#\\(en_US.UTF-8\\)/\\1/' /etc/locale.gen
+sed -i 's/^#\(ru_RU.UTF-8\)/\1/' /etc/locale.gen
+sed -i 's/^#\(en_US.UTF-8\)/\1/' /etc/locale.gen
 locale-gen
 
-echo "LANG=$LOCALE" > /etc/locale.conf
-echo "KEYMAP=$KEYMAP" > /etc/vconsole.conf
-echo "$HOSTNAME" > /etc/hostname
+echo "LANG=ru_RU.UTF-8" > /etc/locale.conf
+echo "KEYMAP=ru" > /etc/vconsole.conf
+echo "haruhi" > /etc/hostname
 cat > /etc/hosts << HOSTS
 127.0.0.1   localhost
 ::1         localhost
-127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
+127.0.1.1   haruhi.localdomain haruhi
 HOSTS
 
+# Настройка пользователей
+echo "Установка пароля для root:"
 passwd
-useradd -m -G wheel -s /bin/bash $USERNAME
-passwd $USERNAME
-grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
+useradd -m -G wheel -s /bin/bash kyon
+echo "Установка пароля для пользователя kyon:"
+passwd kyon
 
-$EDITOR /etc/pacman.conf
+# Настройка sudo
+if ! grep -q '^%wheel' /etc/sudoers; then
+    echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
+fi
 
-pacman -Syu --noconfirm
+# Редактирование pacman.conf (опционально)
+echo "Хотите отредактировать /etc/pacman.conf? (y/N): "
+read -r edit_pacman
+if [[ "$edit_pacman" =~ ^[Yy]$ ]]; then
+    nano /etc/pacman.conf
+fi
 
-if [ "$INSTALL_TYPE" = "full" ]; then
-    pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber wireguard-tools steam lutris wine
+# Обновление системы
+safe_pacman_install ""
 
-    runuser -u $USERNAME -- bash -c '
-    cd /home/$USERNAME
+# Проверяем тип установки
+if [[ -f /tmp/install_type && $(cat /tmp/install_type) == "full" ]]; then
+    printf "[*] Начинаем установку полной системы...\n"
+    
+    # Установка GNOME и базовых пакетов
+    safe_pacman_install "gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber"
+    
+    # Дополнительные пакеты
+    safe_pacman_install "networkmanager network-manager-applet xdg-user-dirs xdg-utils"
+    safe_pacman_install "firefox vlc gimp libreoffice-fresh"
+    
+    # Игровые пакеты
+    safe_pacman_install "steam wine-staging lutris"
+    
+    # Установка AUR помощника (yay)
+    echo "[*] Установка yay из AUR..."
+    cd /tmp
     git clone https://aur.archlinux.org/yay.git
     cd yay
-    makepkg -si --noconfirm
-    '
-
-    runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
-
+    chown -R kyon:kyon .
+    sudo -u kyon makepkg -si --noconfirm
+    
+    # Установка AUR пакетов через yay
+    echo "[*] Установка AUR пакетов..."
+    sudo -u kyon yay -S --noconfirm visual-studio-code-bin discord spotify
+    
+    # Настройка Flatpak
+    echo "[*] Настройка Flatpak..."
     flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-    flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
-fi
-
-systemctl enable NetworkManager
-
-if [ "$INSTALL_TYPE" = "full" ]; then
+    flatpak install -y flathub org.mozilla.firefox org.telegram.desktop com.obsproject.Studio
+    
+    # Включение служб
     systemctl enable gdm
 fi
+
+# Включение NetworkManager
+systemctl enable NetworkManager
+
+# Создание конфигурации mkinitcpio
+mkinitcpio -P
+
+# Установка GRUB (если не UEFI, то пропускаем)
+if [[ -d /sys/firmware/efi ]]; then
+    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+    grub-mkconfig -o /boot/grub/grub.cfg
+else
+    echo "[!] Система не в UEFI режиме. Установите загрузчик вручную."
+fi
+
+echo "[✓] Конфигурация завершена!"
 EOF
 
+    # Сохраняем тип установки для использования в chroot
+    echo "$INSTALL_TYPE" > /mnt/tmp/install_type
+    
     chmod +x "$script_path"
 }
 
 run_chroot_script() {
     printf "[+] Выполнение конфигурации в chroot...\n"
+    
+    # Копируем resolv.conf для DNS
+    cp /etc/resolv.conf /mnt/etc/resolv.conf
+    
+    # Выполняем скрипт в chroot
     arch-chroot /mnt /root/chroot_script.sh
 }
 
@@ -266,8 +452,25 @@ install_grub() {
 
 cleanup_and_reboot() {
     printf "[+] Отмонтирование /mnt...\n"
-    umount -R /mnt
-    printf "[✓] Установка завершена. Перезагрузите систему вручную.\n"
+    umount -R /mnt 2>/dev/null || true
+    
+    printf "\n[✓] Установка завершена!\n"
+    printf "\nИнструкции после установки:\n"
+    printf "1. Извлеките установочный носитель\n"
+    printf "2. Перезагрузите систему: reboot\n"
+    printf "3. Войдите как пользователь 'kyon'\n"
+    
+    printf "\n[?] Перезагрузить сейчас? (y/N): "
+    read -r reboot_now
+    if [[ "$reboot_now" =~ ^[Yy]$ ]]; then
+        reboot
+    fi
 }
+
+# Проверяем, что скрипт запущен от root
+if [[ $EUID -ne 0 ]]; then
+   printf "[!] Этот скрипт должен запускаться от root\n" >&2
+   exit 1
+fi
 
 main "$@"
