@@ -218,24 +218,61 @@ useradd -m -G wheel -s /bin/bash $USERNAME
 passwd $USERNAME
 grep -q '^%wheel' /etc/sudoers || echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
 
-$EDITOR /etc/pacman.conf
+# Автоматически включаем репозиторий multilib (для steam, lutris, wine)
+sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' /etc/pacman.conf
 
 pacman -Syu --noconfirm
 
 if [ "$INSTALL_TYPE" = "full" ]; then
-    pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber wireguard-tools steam lutris wine
+    # Добавляем flatpak. Если даже pacman не сможет его скачать, скрипт продолжит работу.
+    pacman -S --noconfirm gnome gdm pipewire pipewire-alsa pipewire-pulse wireplumber wireguard-tools steam lutris wine flatpak || \
+        echo "[!] Ошибка при установке некоторых пакетов (включая flatpak). Продолжаем установку..."
 
+    # Временно даем права без пароля, чтобы makepkg не завис
+    echo "$USERNAME ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/99_installer_temp
+    chmod 440 /etc/sudoers.d/99_installer_temp
+
+    echo "[*] Установка yay (AUR)..."
+    
+    # ВАЖНО: Отключаем строгий режим (set -e) для необязательных вещей
+    set +e
+    
+    # Пытаемся установить yay
     runuser -u $USERNAME -- bash -c '
     cd /home/$USERNAME
     git clone https://aur.archlinux.org/yay.git
     cd yay
     makepkg -si --noconfirm
     '
+    YAY_STATUS=$?
 
-    runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
+    if [ $YAY_STATUS -eq 0 ]; then
+        # Если yay установился, ставим пакеты из AUR. Если ошибка — просто пишем лог.
+        runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
+        if [ $? -ne 0 ]; then
+            echo "[!] Не удалось установить AUR-пакеты (VS Code, Discord)."
+        fi
+    else
+        echo "[!] Не удалось установить yay. AUR-пакеты (VS Code, Discord) пропущены."
+    fi
 
-    flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-    flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
+    # Проверяем Flatpak
+    echo "[*] Настройка Flatpak..."
+    if command -v flatpak &>/dev/null; then
+        flatpak remote-add --if-not-exists flathub https://mirror.sjtu.edu.cn/flathub
+        flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
+        if [ $? -ne 0 ]; then
+            echo "[!] Не удалось скачать некоторые Flatpak-приложения (сеть/таймаут)."
+        fi
+    else
+        echo "[!] Flatpak не установлен. Пропускаем Flatpak-приложения."
+    fi
+    
+    # ВКЛЮЧАЕМ строгий режим обратно для критических настроек
+    set -e
+
+    # Убираем временные права sudo
+    rm -f /etc/sudoers.d/99_installer_temp
 fi
 
 systemctl enable NetworkManager
