@@ -234,35 +234,36 @@ if [ "$INSTALL_TYPE" = "full" ]; then
 
     echo "[*] Установка yay (AUR)..."
     
-    # ВАЖНО: Отключаем строгий режим (set -e) для необязательных вещей
+    # Отключаем строгий режим (set -e) для необязательных вещей
     set +e
     
-    # Пытаемся установить yay
-    runuser -u $USERNAME -- bash -c '
+    # Пытаемся установить yay. Конструкция 'if команда' безопасна при set -e и set -u.
+    if runuser -u $USERNAME -- bash -c '
     cd /home/$USERNAME
     git clone https://aur.archlinux.org/yay.git
     cd yay
     makepkg -si --noconfirm
-    '
-    YAY_STATUS=$?
-
-    if [ $YAY_STATUS -eq 0 ]; then
-        # Если yay установился, ставим пакеты из AUR. Если ошибка — просто пишем лог.
-        runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord
-        if [ $? -ne 0 ]; then
+    '; then
+        echo "[+] yay успешно установлен. Ставим AUR-пакеты..."
+        # Если yay установился, ставим пакеты из AUR. Если ошибка — ловим ее.
+        if ! runuser -u $USERNAME -- yay -S --noconfirm visual-studio-code-bin discord; then
             echo "[!] Не удалось установить AUR-пакеты (VS Code, Discord)."
         fi
     else
-        echo "[!] Не удалось установить yay. AUR-пакеты (VS Code, Discord) пропущены."
+        echo "[!] Не удалось установить yay (сеть или ошибка сборки). AUR-пакеты пропущены."
     fi
 
     # Проверяем Flatpak
     echo "[*] Настройка Flatpak..."
     if command -v flatpak &>/dev/null; then
-        flatpak remote-add --if-not-exists flathub https://mirror.sjtu.edu.cn/flathub
-        flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice
-        if [ $? -ne 0 ]; then
-            echo "[!] Не удалось скачать некоторые Flatpak-приложения (сеть/таймаут)."
+        # Проверяем, удалось ли подключить репозиторий
+        if flatpak remote-add --if-not-exists flathub https://mirror.sjtu.edu.cn/flathub; then
+            # Если репозиторий подключен, ставим приложения
+            if ! flatpak install -y flathub org.mozilla.firefox org.telegram.desktop md.obsidian.Obsidian com.obsproject.Studio org.kde.krita org.gnome.Extensions org.libreoffice.LibreOffice; then
+                echo "[!] Не удалось скачать некоторые Flatpak-приложения (сеть/таймаут)."
+            fi
+        else
+            echo "[!] Не удалось подключить репозиторий Flathub. Пропускаем Flatpak."
         fi
     else
         echo "[!] Flatpak не установлен. Пропускаем Flatpak-приложения."
